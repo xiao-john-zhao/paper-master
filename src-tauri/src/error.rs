@@ -31,7 +31,12 @@ pub struct AppError {
 
 impl AppError {
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
-        Self { code, message: message.into(), detail: None, request_id: None }
+        Self {
+            code,
+            message: message.into(),
+            detail: None,
+            request_id: None,
+        }
     }
 
     pub fn detail(mut self, detail: impl Into<String>) -> Self {
@@ -42,6 +47,25 @@ impl AppError {
     pub fn request_id(mut self, request_id: impl Into<String>) -> Self {
         self.request_id = Some(request_id.into());
         self
+    }
+
+    pub fn code_string(&self) -> &'static str {
+        match self.code {
+            ErrorCode::PdfReadFailed => "PDF_READ_FAILED",
+            ErrorCode::PdfTextEmpty => "PDF_TEXT_EMPTY",
+            ErrorCode::DatabaseWriteFailed => "DATABASE_WRITE_FAILED",
+            ErrorCode::DatabaseReadFailed => "DATABASE_READ_FAILED",
+            ErrorCode::LmstudioConnectionFailed => "LMSTUDIO_CONNECTION_FAILED",
+            ErrorCode::LmstudioModelNotFound => "LMSTUDIO_MODEL_NOT_FOUND",
+            ErrorCode::AiTimeout => "AI_TIMEOUT",
+            ErrorCode::AiCancelled => "AI_CANCELLED",
+            ErrorCode::AiInvalidJson => "AI_INVALID_JSON",
+            ErrorCode::FileNotFound => "FILE_NOT_FOUND",
+            ErrorCode::DuplicatePaper => "DUPLICATE_PAPER",
+            ErrorCode::InvalidSettings => "INVALID_SETTINGS",
+            ErrorCode::MigrationFailed => "MIGRATION_FAILED",
+            ErrorCode::Internal => "INTERNAL",
+        }
     }
 }
 
@@ -54,4 +78,3 @@ impl std::fmt::Display for AppError {
 impl std::error::Error for AppError {}
 
 pub type AppResult<T> = Result<T, AppError>;
-

@@ -3,4 +3,3 @@
 fn main() {
     paper_master_lib::run();
 }
-

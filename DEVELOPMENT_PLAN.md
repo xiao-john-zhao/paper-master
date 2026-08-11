@@ -6,8 +6,8 @@ The project follows a stable-core / extensible-adapter design. A phase is comple
 | --- | --- | --- |
 | 1 | Environment, Tauri/React bootstrap, Git, config, errors, logging | Complete |
 | 2 | Domain interfaces, three-pane UI, Settings and Diagnostics | Complete |
-| 3 | SQLite migrations, repository, CRUD and integrity checks | In progress |
-| 4 | PDF/folder import, extraction, sections, open PDF | Planned |
+| 3 | SQLite migrations, repository, CRUD and integrity checks | Complete |
+| 4 | PDF/folder import, extraction, sections, open PDF | In progress |
 | 5 | LM Studio + Mock providers, analysis, validation, tracing | Planned |
 | 6 | Keyword and tag search | Planned |
 | 7 | Structured two-paper comparison | Planned |

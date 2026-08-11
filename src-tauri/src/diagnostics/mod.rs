@@ -10,7 +10,13 @@ use std::{
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
-pub enum LogLevel { Trace, Debug, Info, Warn, Error }
+pub enum LogLevel {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LogEvent {
@@ -28,15 +34,28 @@ pub struct LogEvent {
 }
 
 impl LogEvent {
-    pub fn info(module: impl Into<String>, operation: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn info(
+        module: impl Into<String>,
+        operation: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         Self::new(LogLevel::Info, module, operation, message)
     }
 
-    pub fn error(module: impl Into<String>, operation: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn error(
+        module: impl Into<String>,
+        operation: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         Self::new(LogLevel::Error, module, operation, message)
     }
 
-    pub fn new(level: LogLevel, module: impl Into<String>, operation: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn new(
+        level: LogLevel,
+        module: impl Into<String>,
+        operation: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             timestamp: Utc::now().to_rfc3339(),
             level,
@@ -62,13 +81,19 @@ impl AppLogger {
         fs::create_dir_all(&log_dir)?;
         let path = log_dir.join("paper-master.log");
         let file = OpenOptions::new().create(true).append(true).open(&path)?;
-        Ok(Self { path, file: Mutex::new(file), recent_errors: Mutex::new(VecDeque::with_capacity(50)) })
+        Ok(Self {
+            path,
+            file: Mutex::new(file),
+            recent_errors: Mutex::new(VecDeque::with_capacity(50)),
+        })
     }
 
     pub fn log(&self, event: LogEvent) {
         if matches!(event.level, LogLevel::Error) {
             if let Ok(mut errors) = self.recent_errors.lock() {
-                if errors.len() == 50 { errors.pop_front(); }
+                if errors.len() == 50 {
+                    errors.pop_front();
+                }
                 errors.push_back(event.clone());
             }
         }
@@ -77,10 +102,14 @@ impl AppLogger {
         }
     }
 
-    pub fn path(&self) -> &Path { &self.path }
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
 
     pub fn recent_errors(&self) -> Vec<LogEvent> {
-        self.recent_errors.lock().map(|items| items.iter().cloned().collect()).unwrap_or_default()
+        self.recent_errors
+            .lock()
+            .map(|items| items.iter().cloned().collect())
+            .unwrap_or_default()
     }
 }
-
