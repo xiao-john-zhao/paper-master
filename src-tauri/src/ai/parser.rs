@@ -10,11 +10,14 @@ pub fn parse_analysis_response(raw: &str) -> AppResult<PaperAnalysisResult> {
     let mut value: PaperAnalysisResult = serde_json::from_str(&json)
         .map_err(|error| invalid(format!("Analysis JSON parsing failed: {error}")))?;
     value.tags = unique_nonempty(value.tags);
+    value.key_innovations = unique_nonempty(value.key_innovations);
     value.key_contributions = unique_nonempty(value.key_contributions);
     if value.research_problem.trim().is_empty()
+        || value.research_scenario.trim().is_empty()
         || value.core_method.trim().is_empty()
         || value.main_results.trim().is_empty()
         || value.limitations.trim().is_empty()
+        || value.key_innovations.is_empty()
         || value.key_contributions.is_empty()
     {
         return Err(invalid("Analysis JSON contains empty required fields."));
@@ -25,12 +28,14 @@ pub fn parse_analysis_response(raw: &str) -> AppResult<PaperAnalysisResult> {
     let summary_is_chinese = value.ai_summary.as_deref().is_none_or(contains_cjk);
     if ![
         value.research_problem.as_str(),
+        value.research_scenario.as_str(),
         value.core_method.as_str(),
         value.main_results.as_str(),
         value.limitations.as_str(),
     ]
     .into_iter()
     .all(contains_cjk)
+        || !value.key_innovations.iter().all(|item| contains_cjk(item))
         || !value
             .key_contributions
             .iter()
@@ -41,7 +46,7 @@ pub fn parse_analysis_response(raw: &str) -> AppResult<PaperAnalysisResult> {
             "Analysis fields must be written in Simplified Chinese.",
         ));
     }
-    value.schema_version = "1".to_string();
+    value.schema_version = "2".to_string();
     Ok(value)
 }
 
@@ -221,7 +226,7 @@ fn invalid(detail: impl Into<String>) -> AppError {
 mod tests {
     use super::*;
 
-    const VALID: &str = r#"{"research_problem":"研究问题","core_method":"核心方法","key_contributions":["主要贡献"],"main_results":"主要结果","limitations":"研究局限","tags":["标签一","标签二","标签三"],}"#;
+    const VALID: &str = r#"{"schema_version":"2","research_problem":"研究问题","research_scenario":"应用场景","core_method":"核心方法","key_innovations":["主要创新"],"key_contributions":["主要贡献"],"main_results":"主要结果","limitations":"研究局限","tags":["标签一","标签二","标签三"],}"#;
 
     #[test]
     fn removes_fences_reasoning_and_trailing_commas() {
@@ -238,6 +243,17 @@ mod tests {
         assert_eq!(
             parse_analysis_response(&raw)
                 .expect_err("tags")
+                .code_string(),
+            "AI_INVALID_JSON"
+        );
+    }
+
+    #[test]
+    fn requires_all_five_summary_modules() {
+        let raw = VALID.replace("\"research_scenario\":\"应用场景\",", "");
+        assert_eq!(
+            parse_analysis_response(&raw)
+                .expect_err("scenario")
                 .code_string(),
             "AI_INVALID_JSON"
         );

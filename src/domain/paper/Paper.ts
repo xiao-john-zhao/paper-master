@@ -10,9 +10,11 @@ export interface PdfDiagnostics {
 }
 
 export interface PaperAnalysisResult {
-  schema_version: "1";
+  schema_version: "1" | "2";
   research_problem: string;
+  research_scenario?: string;
   core_method: string;
+  key_innovations?: string[];
   key_contributions: string[];
   main_results: string;
   limitations: string;
@@ -51,4 +53,3 @@ export interface ImportSummary {
   duplicates: string[];
   failed: Array<{ path: string; code: string; message: string }>;
 }
-

@@ -133,14 +133,20 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .analysis-empty strong { color: #465266; font-size: 13px; }
 .analysis-empty p { margin: 7px 0; color: #8a94a2; font-size: 11.5px; line-height: 1.55; }
 .analysis-sections { max-width: 880px; }
-.analysis-sections section { padding: 18px 0; border-bottom: 1px solid #eceef1; }
-.analysis-sections section:last-child { border: 0; }
+.analysis-sections > section { padding: 18px 0; border-bottom: 1px solid #eceef1; }
+.analysis-sections > section:last-child { border: 0; }
 .analysis-sections h3 { margin: 0 0 8px; color: #364256; font-size: 12px; font-weight: 670; }
 .analysis-sections p, .analysis-sections li { margin: 0; color: #526073; font-size: 12.5px; line-height: 1.68; }
 .analysis-sections ol { margin: 0; padding-left: 22px; }
 .analysis-sections li { padding: 3px 0 3px 4px; }
 .analysis-sections .analysis-summary { margin-top: 14px; padding: 13px 15px; border: 1px solid #dbe4f8; border-radius: 5px; background: #f7f9fe; }
 .analysis-summary span { display: block; margin-bottom: 5px; color: #6680ba; font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.summary-framework { display: grid; gap: 10px; margin-top: 14px; counter-reset: summary-module; }
+.analysis-sections .summary-module { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 16px; padding: 15px 16px; border: 1px solid #e3e7ee; border-radius: 6px; background: #fff; }
+.summary-module-heading { display: flex; align-items: center; gap: 8px; align-self: start; }
+.summary-module-heading span { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; background: #eaf0ff; color: #2458d3; font-size: 10px; font-weight: 750; }
+.analysis-sections .summary-module-heading h3 { margin: 0; color: #263b69; font-size: 13px; }
+.analysis-sections .analysis-supplement { padding: 16px 0; }
 .detail-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .detail-empty { background: #fbfcfd; }
 .empty-document { display: grid; width: 48px; height: 58px; place-items: center; border: 1px solid #dce1e8; border-radius: 4px; background: #fff; color: #a7afba; box-shadow: 3px 3px 0 #eef0f3; }

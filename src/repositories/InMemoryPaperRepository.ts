@@ -16,9 +16,14 @@ const DEMO_PAPERS: Paper[] = [
     tags: ["scientific NLP", "local LLM", "summarization"],
     analysis_status: "analyzed",
     analysis: {
-      schema_version: "1",
+      schema_version: "2",
       research_problem: "Local language models have limited context and can miss essential evidence when long papers are truncated without regard to document structure.",
+      research_scenario: "Private analysis of long, text-based scientific PDFs with local language models on a researcher's computer.",
       core_method: "The authors detect major paper sections and assemble a bounded representation from the title, abstract, introduction, conclusion, and a small set of supporting passages.",
+      key_innovations: [
+        "Combining section priorities with a deterministic input budget instead of uniform truncation.",
+        "Separating PDF extraction diagnostics from downstream model failures in one local workflow.",
+      ],
       key_contributions: [
         "A section-aware input builder designed for local language models.",
         "A deterministic text budget that preserves high-value scientific context.",
@@ -51,9 +56,11 @@ const DEMO_PAPERS: Paper[] = [
     tags: ["information retrieval", "literature review"],
     analysis_status: "analyzed",
     analysis: {
-      schema_version: "1",
+      schema_version: "2",
       research_problem: "Literature review tools often produce claims without preserving a reproducible connection to supporting paper passages.",
+      research_scenario: "Evidence-grounded literature review over a domain-specific local collection of scientific papers.",
       core_method: "A hybrid candidate generator and learned passage ranker return evidence with stable paper and section references.",
+      key_innovations: ["Stable paper-and-section evidence references attached to ranked review passages."],
       key_contributions: ["An evidence-linked retrieval protocol.", "A reproducibility-oriented evaluation set."],
       main_results: "The approach improves passage recall and reviewer agreement over the compared keyword baseline.",
       limitations: "The collection is domain-specific and citation relationships are not modeled.",
@@ -96,7 +103,7 @@ function matches(paper: Paper, query: PaperQuery) {
   if (query.tag && !paper.tags.some((tag) => tag.toLowerCase() === query.tag!.toLowerCase())) return false;
   const needle = query.text?.trim().toLowerCase();
   if (!needle) return true;
-  return [paper.title, paper.authors.join(" "), paper.abstract ?? "", paper.analysis?.ai_summary ?? "", paper.analysis?.research_problem ?? "", paper.analysis?.core_method ?? "", paper.analysis?.key_contributions.join(" ") ?? "", paper.tags.join(" ")]
+  return [paper.title, paper.authors.join(" "), paper.abstract ?? "", paper.analysis?.ai_summary ?? "", paper.analysis?.research_problem ?? "", paper.analysis?.research_scenario ?? "", paper.analysis?.core_method ?? "", paper.analysis?.key_innovations?.join(" ") ?? "", paper.analysis?.key_contributions.join(" ") ?? "", paper.tags.join(" ")]
     .join(" ").toLowerCase().includes(needle);
 }
 
@@ -118,4 +125,3 @@ export class InMemoryPaperRepository implements PaperRepository {
   async search(query: PaperQuery) { return this.list(query); }
   async existsByPath(path: string) { return this.papers.some((paper) => paper.file_path === path); }
 }
-

@@ -82,13 +82,15 @@ impl PaperRepository for SqlitePaperRepository<'_> {
     fn create(&self, paper: &Paper, extracted_text: &str) -> AppResult<Paper> {
         let analysis = paper.analysis.as_ref();
         self.connection.execute(
-            "INSERT INTO papers (id,file_path,file_name,title,authors_json,year,abstract_text,extracted_text,ai_summary,research_problem,core_method,key_contributions_json,main_results,limitations,tags_json,ai_analyzed,analysis_status,analysis_error,pdf_diagnostics_json,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)",
+            "INSERT INTO papers (id,file_path,file_name,title,authors_json,year,abstract_text,extracted_text,ai_summary,research_problem,core_method,key_contributions_json,main_results,limitations,tags_json,ai_analyzed,analysis_status,analysis_error,pdf_diagnostics_json,created_at,updated_at,analysis_schema_version,research_scenario,key_innovations_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24)",
             params![
                 paper.id, paper.file_path, paper.file_name, paper.title, json(&paper.authors)?, paper.year, paper.abstract_text,
                 extracted_text, analysis.and_then(|value| value.ai_summary.as_deref()), analysis.map(|value| value.research_problem.as_str()),
                 analysis.map(|value| value.core_method.as_str()), json(&analysis.map(|value| &value.key_contributions).cloned().unwrap_or_default())?,
                 analysis.map(|value| value.main_results.as_str()), analysis.map(|value| value.limitations.as_str()), json(&paper.tags)?,
                 i64::from(paper.analysis.is_some()), paper.analysis_status, paper.analysis_error, optional_json(paper.pdf_diagnostics.as_ref())?, paper.created_at, paper.updated_at,
+                analysis.map(|value| value.schema_version.as_str()).unwrap_or("2"), analysis.map(|value| value.research_scenario.as_str()),
+                json(&analysis.map(|value| &value.key_innovations).cloned().unwrap_or_default())?,
             ],
         ).map_err(|error| {
             if matches!(&error, rusqlite::Error::SqliteFailure(inner, _) if inner.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE) {
@@ -101,11 +103,13 @@ impl PaperRepository for SqlitePaperRepository<'_> {
     fn update(&self, paper: &Paper) -> AppResult<Paper> {
         let analysis = paper.analysis.as_ref();
         let changed = self.connection.execute(
-            "UPDATE papers SET file_path=?2,file_name=?3,title=?4,authors_json=?5,year=?6,abstract_text=?7,ai_summary=?8,research_problem=?9,core_method=?10,key_contributions_json=?11,main_results=?12,limitations=?13,tags_json=?14,ai_analyzed=?15,analysis_status=?16,analysis_error=?17,pdf_diagnostics_json=?18,updated_at=?19 WHERE id=?1",
+            "UPDATE papers SET file_path=?2,file_name=?3,title=?4,authors_json=?5,year=?6,abstract_text=?7,ai_summary=?8,research_problem=?9,core_method=?10,key_contributions_json=?11,main_results=?12,limitations=?13,tags_json=?14,ai_analyzed=?15,analysis_status=?16,analysis_error=?17,pdf_diagnostics_json=?18,updated_at=?19,analysis_schema_version=?20,research_scenario=?21,key_innovations_json=?22 WHERE id=?1",
             params![paper.id,paper.file_path,paper.file_name,paper.title,json(&paper.authors)?,paper.year,paper.abstract_text,
                 analysis.and_then(|value| value.ai_summary.as_deref()),analysis.map(|value| value.research_problem.as_str()),analysis.map(|value| value.core_method.as_str()),
                 json(&analysis.map(|value| &value.key_contributions).cloned().unwrap_or_default())?,analysis.map(|value| value.main_results.as_str()),analysis.map(|value| value.limitations.as_str()),
-                json(&paper.tags)?,i64::from(paper.analysis.is_some()),paper.analysis_status,paper.analysis_error,optional_json(paper.pdf_diagnostics.as_ref())?,paper.updated_at],
+                json(&paper.tags)?,i64::from(paper.analysis.is_some()),paper.analysis_status,paper.analysis_error,optional_json(paper.pdf_diagnostics.as_ref())?,paper.updated_at,
+                analysis.map(|value| value.schema_version.as_str()).unwrap_or("2"),analysis.map(|value| value.research_scenario.as_str()),
+                json(&analysis.map(|value| &value.key_innovations).cloned().unwrap_or_default())?],
         ).map_err(|error| write_error("Could not update paper", error))?;
         if changed == 0 {
             return Err(AppError::new(
@@ -198,7 +202,7 @@ fn fts_expression(query: &str) -> String {
         .join(" AND ")
 }
 
-const PAPER_SELECT: &str = "SELECT id,file_path,file_name,title,authors_json,year,abstract_text,ai_summary,research_problem,core_method,key_contributions_json,main_results,limitations,tags_json,ai_analyzed,analysis_status,analysis_error,pdf_diagnostics_json,created_at,updated_at FROM papers";
+const PAPER_SELECT: &str = "SELECT id,file_path,file_name,title,authors_json,year,abstract_text,ai_summary,research_problem,core_method,key_contributions_json,main_results,limitations,tags_json,ai_analyzed,analysis_status,analysis_error,pdf_diagnostics_json,created_at,updated_at,analysis_schema_version,research_scenario,key_innovations_json FROM papers";
 
 fn map_paper(row: &Row<'_>) -> rusqlite::Result<Paper> {
     let authors: Vec<String> = parse_json(row.get::<_, String>(4)?, 4)?;
@@ -211,10 +215,15 @@ fn map_paper(row: &Row<'_>) -> rusqlite::Result<Paper> {
     let main_results: Option<String> = row.get(11)?;
     let limitations: Option<String> = row.get(12)?;
     let diagnostics_json: Option<String> = row.get(17)?;
+    let schema_version: String = row.get(20)?;
+    let research_scenario: Option<String> = row.get(21)?;
+    let key_innovations: Vec<String> = parse_json(row.get::<_, String>(22)?, 22)?;
     let analysis = analyzed.then(|| PaperAnalysisResult {
-        schema_version: "1".to_string(),
+        schema_version,
         research_problem: research_problem.unwrap_or_default(),
+        research_scenario: research_scenario.unwrap_or_default(),
         core_method: core_method.unwrap_or_default(),
+        key_innovations,
         key_contributions,
         main_results: main_results.unwrap_or_default(),
         limitations: limitations.unwrap_or_default(),
@@ -285,7 +294,13 @@ fn matches_query(paper: &Paper, query: &PaperQuery) -> bool {
             .map(|value| value.research_problem.as_str())
             .unwrap_or_default(),
         analysis
+            .map(|value| value.research_scenario.as_str())
+            .unwrap_or_default(),
+        analysis
             .map(|value| value.core_method.as_str())
+            .unwrap_or_default(),
+        &analysis
+            .map(|value| value.key_innovations.join(" "))
             .unwrap_or_default(),
         &analysis
             .map(|value| value.key_contributions.join(" "))
@@ -383,6 +398,49 @@ mod tests {
         );
         repository.delete(&value.id).expect("delete");
         assert!(repository.find_by_id(&value.id).expect("find").is_none());
+    }
+
+    #[test]
+    fn persists_and_searches_v2_summary_modules() {
+        let database = Database::in_memory().expect("database");
+        let connection = database.connection().expect("connection");
+        let repository = SqlitePaperRepository::new(&connection);
+        let mut value = paper();
+        value.analysis = Some(PaperAnalysisResult {
+            schema_version: "2".into(),
+            research_problem: "统一文献归纳问题".into(),
+            research_scenario: "本地科研文献管理场景".into(),
+            core_method: "结构化提示与响应校验".into(),
+            key_innovations: vec!["五模块强制契约".into()],
+            key_contributions: vec!["提升跨论文总结一致性".into()],
+            main_results: "生成稳定的模块化总结".into(),
+            limitations: "依赖输入论文中的明确证据".into(),
+            tags: vec!["文献总结".into(), "结构化输出".into(), "本地大模型".into()],
+            ai_summary: Some("以统一契约生成模块化论文总结。".into()),
+        });
+        value.tags = value.analysis.as_ref().expect("analysis").tags.clone();
+        value.analysis_status = "analyzed".into();
+        repository.create(&value, "extracted").expect("create");
+
+        let stored = repository
+            .find_by_id(&value.id)
+            .expect("find")
+            .expect("paper")
+            .analysis
+            .expect("stored analysis");
+        assert_eq!(stored.schema_version, "2");
+        assert_eq!(stored.research_scenario, "本地科研文献管理场景");
+        assert_eq!(stored.key_innovations, vec!["五模块强制契约"]);
+        assert_eq!(
+            repository
+                .search(&PaperQuery {
+                    text: Some("五模块".into()),
+                    ..Default::default()
+                })
+                .expect("search")
+                .len(),
+            1
+        );
     }
 
     #[test]

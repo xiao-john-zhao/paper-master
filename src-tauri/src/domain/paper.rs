@@ -5,7 +5,11 @@ pub struct PaperAnalysisResult {
     #[serde(default = "analysis_schema_version")]
     pub schema_version: String,
     pub research_problem: String,
+    #[serde(default)]
+    pub research_scenario: String,
     pub core_method: String,
+    #[serde(default)]
+    pub key_innovations: Vec<String>,
     pub key_contributions: Vec<String>,
     pub main_results: String,
     pub limitations: String,
@@ -15,7 +19,7 @@ pub struct PaperAnalysisResult {
 }
 
 fn analysis_schema_version() -> String {
-    "1".to_string()
+    "2".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

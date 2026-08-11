@@ -67,10 +67,15 @@ impl AIProvider for MockAIProvider {
 
 fn mock_analysis() -> PaperAnalysisResult {
     PaperAnalysisResult {
-        schema_version: "1".into(),
+        schema_version: "2".into(),
         research_problem: "如何在本地模型上下文受限的条件下可靠分析长篇学术论文？".into(),
+        research_scenario: "面向在个人电脑上使用本地大模型分析长篇学术 PDF 的私密科研场景。".into(),
         core_method: "采用章节感知的输入构建器，优先保留题目、摘要、引言、结论和少量正文证据。"
             .into(),
+        key_innovations: vec![
+            "将章节优先级与确定性字符预算结合，减少统一截断造成的关键证据丢失。".into(),
+            "把 PDF 解析诊断与模型服务诊断纳入同一条本地分析链路。".into(),
+        ],
         key_contributions: vec![
             "提出有长度上限的本地文档分析流程。".into(),
             "用结构化诊断区分解析器故障与模型服务故障。".into(),

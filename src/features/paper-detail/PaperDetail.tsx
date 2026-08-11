@@ -22,15 +22,28 @@ function AnalysisContent({ paper }: { paper: Paper }) {
       </div>
     );
   }
+  const modules = [
+    { key: "problem", label: "问题", value: result.research_problem },
+    { key: "scenario", label: "场景", value: result.research_scenario },
+    { key: "method", label: "方法", value: result.core_method },
+    { key: "innovation", label: "创新", values: result.key_innovations },
+    { key: "contribution", label: "贡献", values: result.key_contributions },
+  ].filter((module) => module.value || module.values?.length);
   return (
     <div className="analysis-sections">
-      {result.ai_summary && <section className="analysis-summary"><span>AI summary</span><p>{result.ai_summary}</p></section>}
-      {result.research_problem && <section><h3>Research Problem</h3><p>{result.research_problem}</p></section>}
-      {result.core_method && <section><h3>Core Method</h3><p>{result.core_method}</p></section>}
-      {!!result.key_contributions.length && <section><h3>Key Contributions</h3><ol>{result.key_contributions.map((item, index) => <li key={index}>{item}</li>)}</ol></section>}
-      {result.main_results && <section><h3>Main Results</h3><p>{result.main_results}</p></section>}
-      {result.limitations && <section><h3>Limitations</h3><p>{result.limitations}</p></section>}
-      {!!result.tags.length && <section><h3>Keywords / Tags</h3><div className="detail-tags">{result.tags.map((tag) => <span key={tag}>{tag}</span>)}</div></section>}
+      {result.ai_summary && <section className="analysis-summary"><span>一句话概览</span><p>{result.ai_summary}</p></section>}
+      <div className="summary-framework" aria-label="问题-场景-方法-创新-贡献">
+        {modules.map((module, moduleIndex) => (
+          <section className="summary-module" key={module.key}>
+            <div className="summary-module-heading"><span>{moduleIndex + 1}</span><h3>{module.label}</h3></div>
+            {module.value && <p>{module.value}</p>}
+            {!!module.values?.length && <ol>{module.values.map((item, index) => <li key={index}>{item}</li>)}</ol>}
+          </section>
+        ))}
+      </div>
+      {result.main_results && <section className="analysis-supplement"><h3>主要结果</h3><p>{result.main_results}</p></section>}
+      {result.limitations && <section className="analysis-supplement"><h3>局限</h3><p>{result.limitations}</p></section>}
+      {!!result.tags.length && <section className="analysis-supplement"><h3>关键词 / 标签</h3><div className="detail-tags">{result.tags.map((tag) => <span key={tag}>{tag}</span>)}</div></section>}
     </div>
   );
 }

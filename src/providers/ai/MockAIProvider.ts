@@ -3,9 +3,14 @@ import type { AnalysisRequest, CompareRequest, ConnectionResult, PaperComparison
 import type { AIProvider } from "./AIProvider";
 
 const MOCK_ANALYSIS: PaperAnalysisResult = {
-  schema_version: "1",
+  schema_version: "2",
   research_problem: "如何在保留关键科研语境的同时高效表示长篇研究文档？",
+  research_scenario: "面向研究者在个人电脑上使用本地大模型处理长篇文本型学术 PDF 的场景。",
   core_method: "采用章节感知的表示流程，将摘要、引言、结论与少量有长度上限的证据段落组合起来。",
+  key_innovations: [
+    "将章节优先级与确定性文本预算结合，降低统一截断造成的关键语境丢失。",
+    "在同一本地流程中分别记录 PDF 提取故障与模型分析故障。",
+  ],
   key_contributions: [
     "提出可复现的章节感知文档表示策略。",
     "提出适用于本地语言模型的有界输入构建方法。",

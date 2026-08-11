@@ -1,9 +1,11 @@
 import { z } from "zod";
 
 export const paperAnalysisSchema = z.object({
-  schema_version: z.literal("1").default("1"),
+  schema_version: z.literal("2").default("2"),
   research_problem: z.string().trim().min(1),
+  research_scenario: z.string().trim().min(1),
   core_method: z.string().trim().min(1),
+  key_innovations: z.array(z.string().trim().min(1)).min(1),
   key_contributions: z.array(z.string().trim().min(1)).min(1),
   main_results: z.string().trim().min(1),
   limitations: z.string().trim().min(1),
@@ -19,7 +21,7 @@ export const paperComparisonSchema = z.object({
   summary: z.string().trim().min(1),
 });
 
-export type PaperAnalysisResultV1 = z.infer<typeof paperAnalysisSchema>;
+export type PaperAnalysisResultV2 = z.infer<typeof paperAnalysisSchema>;
 export type PaperComparisonResult = z.infer<typeof paperComparisonSchema>;
 
 export type ConnectionState = "connected" | "disconnected" | "model_not_loaded" | "connection_failed";

@@ -90,7 +90,57 @@ END
 WHERE substr(file_path, 1, 4) = '\\?\';
 "#;
 
-const MIGRATIONS: &[(i64, &str)] = &[(1, MIGRATION_1), (2, MIGRATION_2), (3, MIGRATION_3)];
+const MIGRATION_4: &str = r#"
+ALTER TABLE papers ADD COLUMN analysis_schema_version TEXT NOT NULL DEFAULT '1';
+ALTER TABLE papers ADD COLUMN research_scenario TEXT;
+ALTER TABLE papers ADD COLUMN key_innovations_json TEXT NOT NULL DEFAULT '[]';
+
+DROP TRIGGER IF EXISTS papers_fts_insert;
+DROP TRIGGER IF EXISTS papers_fts_update;
+DROP TRIGGER IF EXISTS papers_fts_delete;
+DROP TABLE IF EXISTS papers_fts;
+
+CREATE VIRTUAL TABLE papers_fts USING fts5(
+    paper_id UNINDEXED,
+    title,
+    authors,
+    abstract_text,
+    ai_summary,
+    research_problem,
+    research_scenario,
+    core_method,
+    key_innovations,
+    key_contributions,
+    tags,
+    tokenize = 'unicode61'
+);
+
+INSERT INTO papers_fts(paper_id,title,authors,abstract_text,ai_summary,research_problem,research_scenario,core_method,key_innovations,key_contributions,tags)
+SELECT id,title,authors_json,COALESCE(abstract_text,''),COALESCE(ai_summary,''),COALESCE(research_problem,''),COALESCE(research_scenario,''),COALESCE(core_method,''),key_innovations_json,key_contributions_json,tags_json
+FROM papers;
+
+CREATE TRIGGER papers_fts_insert AFTER INSERT ON papers BEGIN
+    INSERT INTO papers_fts(paper_id,title,authors,abstract_text,ai_summary,research_problem,research_scenario,core_method,key_innovations,key_contributions,tags)
+    VALUES(new.id,new.title,new.authors_json,COALESCE(new.abstract_text,''),COALESCE(new.ai_summary,''),COALESCE(new.research_problem,''),COALESCE(new.research_scenario,''),COALESCE(new.core_method,''),new.key_innovations_json,new.key_contributions_json,new.tags_json);
+END;
+
+CREATE TRIGGER papers_fts_update AFTER UPDATE ON papers BEGIN
+    DELETE FROM papers_fts WHERE paper_id=old.id;
+    INSERT INTO papers_fts(paper_id,title,authors,abstract_text,ai_summary,research_problem,research_scenario,core_method,key_innovations,key_contributions,tags)
+    VALUES(new.id,new.title,new.authors_json,COALESCE(new.abstract_text,''),COALESCE(new.ai_summary,''),COALESCE(new.research_problem,''),COALESCE(new.research_scenario,''),COALESCE(new.core_method,''),new.key_innovations_json,new.key_contributions_json,new.tags_json);
+END;
+
+CREATE TRIGGER papers_fts_delete AFTER DELETE ON papers BEGIN
+    DELETE FROM papers_fts WHERE paper_id=old.id;
+END;
+"#;
+
+const MIGRATIONS: &[(i64, &str)] = &[
+    (1, MIGRATION_1),
+    (2, MIGRATION_2),
+    (3, MIGRATION_3),
+    (4, MIGRATION_4),
+];
 
 pub fn run_migrations(connection: &mut Connection) -> AppResult<i64> {
     connection
@@ -134,10 +184,10 @@ mod tests {
     #[test]
     fn migrations_are_idempotent() {
         let mut connection = Connection::open_in_memory().expect("in-memory database");
-        assert_eq!(run_migrations(&mut connection).expect("first migration"), 3);
+        assert_eq!(run_migrations(&mut connection).expect("first migration"), 4);
         assert_eq!(
             run_migrations(&mut connection).expect("second migration"),
-            3
+            4
         );
         let paper_table: String = connection
             .query_row(
@@ -170,12 +220,37 @@ mod tests {
         connection
             .pragma_update(None, "user_version", 2)
             .expect("version");
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 3);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 4);
         let path: String = connection
             .query_row("SELECT file_path FROM papers WHERE id='p1'", [], |row| {
                 row.get(0)
             })
             .expect("path");
         assert_eq!(path, r"E:\中文目录\测试.pdf");
+    }
+
+    #[test]
+    fn migration_adds_v2_summary_modules_without_changing_legacy_version() {
+        let mut connection = Connection::open_in_memory().expect("in-memory database");
+        connection.execute_batch(MIGRATION_1).expect("base schema");
+        connection
+            .execute(
+                "INSERT INTO papers(id,file_path,file_name,title,ai_analyzed,research_problem,created_at,updated_at) VALUES('p1','paper.pdf','paper.pdf','Legacy paper',1,'旧问题','now','now')",
+                [],
+            )
+            .expect("fixture");
+        connection
+            .pragma_update(None, "user_version", 3)
+            .expect("version");
+
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 4);
+        let modules: (String, Option<String>, String) = connection
+            .query_row(
+                "SELECT analysis_schema_version,research_scenario,key_innovations_json FROM papers WHERE id='p1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("v2 columns");
+        assert_eq!(modules, ("1".into(), None, "[]".into()));
     }
 }
