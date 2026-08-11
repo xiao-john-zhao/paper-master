@@ -53,6 +53,7 @@ pub fn run() {
             commands::ai::get_ai_models,
             commands::ai::analyze_paper,
             commands::ai::generate_paper_tags,
+            commands::ai::compare_papers,
             commands::ai::cancel_ai_request,
         ])
         .run(tauri::generate_context!())

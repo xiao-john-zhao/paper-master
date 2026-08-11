@@ -7,6 +7,8 @@ import type { LibraryFilter, Paper } from "../domain/paper/Paper";
 import { LibraryToolbar } from "../features/library/LibraryToolbar";
 import { PaperList } from "../features/library/PaperList";
 import { PaperDetail } from "../features/paper-detail/PaperDetail";
+import { ComparisonDialog } from "../features/comparison/ComparisonDialog";
+import type { PaperComparisonResult } from "../domain/ai/types";
 import { DiagnosticsPage } from "../pages/DiagnosticsPage";
 import { SettingsPage } from "../pages/SettingsPage";
 import { createApplicationServices } from "../services/ApplicationServices";
@@ -28,6 +30,11 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [analyzingId, setAnalyzingId] = useState<string>();
   const [activeRequestId, setActiveRequestId] = useState<string>();
+  const [comparisonOpen, setComparisonOpen] = useState(false);
+  const [comparisonResult, setComparisonResult] = useState<PaperComparisonResult>();
+  const [comparisonError, setComparisonError] = useState<string>();
+  const [comparisonRequestId, setComparisonRequestId] = useState<string>();
+  const [comparing, setComparing] = useState(false);
   const [toast, setToast] = useState<ToastMessage>();
   const toastTimer = useRef<number | undefined>(undefined);
 
@@ -109,6 +116,26 @@ export function App() {
     catch (error) { notify("error", "Analysis could not be cancelled", normalizeAppError(error).message); }
   }
 
+  async function compareSelected() {
+    const selectedPapers = [...compareIds].map((id) => papers.find((paper) => paper.id === id)).filter((paper): paper is Paper => Boolean(paper));
+    if (selectedPapers.length !== 2) return;
+    const missing = selectedPapers.find((paper) => !paper.analysis);
+    if (missing) { notify("info", "Analyze both papers first", `“${missing.title}” does not have a saved AI analysis.`); return; }
+    const requestId = createOperationId("compare");
+    setComparisonOpen(true); setComparing(true); setComparisonResult(undefined); setComparisonError(undefined); setComparisonRequestId(requestId);
+    try {
+      const response = await services.comparisonService.compare(selectedPapers[0], selectedPapers[1], requestId);
+      setComparisonResult(response.result);
+    } catch (error) {
+      setComparisonError(normalizeAppError(error).message);
+    } finally { setComparing(false); }
+  }
+
+  async function cancelComparison() {
+    if (comparisonRequestId && comparing) await services.comparisonService.cancel(comparisonRequestId).catch(() => undefined);
+    setComparing(false); setComparisonOpen(false);
+  }
+
   async function openSelected() {
     if (!selected) return;
     if (!services.tauri) { notify("info", "Open PDF is available in the desktop app", selected.file_path); return; }
@@ -124,6 +151,7 @@ export function App() {
 
   function settingsSaved(settings: AppSettings) {
     services.analysisService.setProvider(services.providers[settings.ai_provider]);
+    services.comparisonService.setProvider(services.providers[settings.ai_provider]);
   }
 
   return (
@@ -131,7 +159,7 @@ export function App() {
       <Sidebar view={view} filter={filter} tags={tags} activeTag={tag} developmentMode={APP_CONFIG.developmentMode || !services.tauri} onView={setView} onFilter={setFilter} onTag={setTag}/>
       {view === "library" && <div className="library-layout">
         <section className="library-column">
-          <LibraryToolbar search={search} compareCount={compareIds.size} loading={loading} onSearch={setSearch} onImportPdf={() => void importPapers(false)} onImportFolder={() => void importPapers(true)} onCompare={() => notify("info", "Comparison view is ready for Phase 7", "The two selected papers will be compared using stored analyses.")}/>
+          <LibraryToolbar search={search} compareCount={compareIds.size} loading={loading} onSearch={setSearch} onImportPdf={() => void importPapers(false)} onImportFolder={() => void importPapers(true)} onCompare={() => void compareSelected()}/>
           {(filter !== "all" || tag) && <div className="active-filter"><span>Showing {tag ? `tag: ${tag}` : filter === "recent" ? "recently added" : "AI analyzed"}</span><button onClick={() => { setTag(undefined); setFilter("all"); }}>Clear</button></div>}
           <PaperList papers={papers} selectedId={selectedId} compareIds={compareIds} loading={loading} onSelect={setSelectedId} onToggleCompare={toggleCompare}/>
           <footer className="library-count">{papers.length} paper{papers.length === 1 ? "" : "s"}</footer>
@@ -140,6 +168,10 @@ export function App() {
       </div>}
       {view === "settings" && <SettingsPage storage={services.settingsStorage} providers={services.providers} onSaved={settingsSaved} onNotify={notify}/>} 
       {view === "diagnostics" && <DiagnosticsPage onNotify={notify}/>} 
+      {comparisonOpen && (() => {
+        const selectedPapers = [...compareIds].map((id) => papers.find((paper) => paper.id === id)).filter((paper): paper is Paper => Boolean(paper));
+        return selectedPapers.length === 2 ? <ComparisonDialog paperA={selectedPapers[0]} paperB={selectedPapers[1]} result={comparisonResult} loading={comparing} error={comparisonError} requestId={comparisonRequestId} onClose={() => setComparisonOpen(false)} onCancel={() => void cancelComparison()} onRetry={() => void compareSelected()}/> : null;
+      })()}
       <Toast toast={toast} onClose={() => setToast(undefined)}/>
     </div>
   );

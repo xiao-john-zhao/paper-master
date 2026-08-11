@@ -10,6 +10,7 @@ export type AppErrorCode =
   | "AI_INVALID_JSON"
   | "FILE_NOT_FOUND"
   | "DUPLICATE_PAPER"
+  | "PAPER_NOT_ANALYZED"
   | "INVALID_SETTINGS"
   | "UI_RENDER_FAILED"
   | "UNKNOWN";
@@ -42,4 +43,3 @@ export function normalizeAppError(error: unknown): AppError {
   }
   return new AppError({ code: "UNKNOWN", message: error instanceof Error ? error.message : String(error) });
 }
-

@@ -130,4 +130,11 @@ mod tests {
             "AI_INVALID_JSON"
         );
     }
+
+    #[test]
+    fn validates_structured_comparison() {
+        let raw = r#"{"common_points":["Shared goal"],"key_differences":["Different method"],"method_comparison":"Methods differ.","contribution_comparison":"Contributions complement each other.","summary":"A bounded comparison."}"#;
+        let value = parse_comparison_response(raw).expect("comparison");
+        assert_eq!(value.common_points, vec!["Shared goal"]);
+    }
 }

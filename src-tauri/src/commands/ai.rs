@@ -13,7 +13,7 @@ use crate::{
     },
     diagnostics::{AppLogger, LogEvent, LogLevel},
     domain::{
-        ai::{AnalysisRequest, ConnectionResult},
+        ai::{AnalysisRequest, CompareRequest, ConnectionResult, PaperComparisonResult},
         paper::PaperAnalysisResult,
         settings::AppSettings,
     },
@@ -232,6 +232,161 @@ pub async fn generate_paper_tags(
     .await;
     requests.remove(&request_id);
     result
+}
+
+#[tauri::command]
+pub async fn compare_papers(
+    database: State<'_, Database>,
+    logger: State<'_, AppLogger>,
+    providers: State<'_, AIProviderRegistry>,
+    requests: State<'_, AIRequestRegistry>,
+    request: CompareRequest,
+) -> AppResult<PaperComparisonResult> {
+    if request.paper_a_id == request.paper_b_id {
+        return Err(AppError::new(
+            ErrorCode::PaperNotAnalyzed,
+            "Select two different papers to compare.",
+        ));
+    }
+    let token = requests.register(&request.request_id);
+    let result = compare_inner(
+        database.inner(),
+        logger.inner(),
+        providers.inner(),
+        &request,
+        token,
+    )
+    .await;
+    requests.remove(&request.request_id);
+    result
+}
+
+async fn compare_inner(
+    database: &Database,
+    logger: &AppLogger,
+    providers: &AIProviderRegistry,
+    request: &CompareRequest,
+    token: tokio_util::sync::CancellationToken,
+) -> AppResult<PaperComparisonResult> {
+    let started = Instant::now();
+    let (settings, paper_a, paper_b) = {
+        let connection = database.connection()?;
+        let repository = SqlitePaperRepository::new(&connection);
+        let settings = SqliteSettingsStorage::new(&connection).get()?;
+        let paper_a = repository.find_by_id(&request.paper_a_id)?.ok_or_else(|| {
+            AppError::new(
+                ErrorCode::FileNotFound,
+                "Paper A no longer exists in the library.",
+            )
+        })?;
+        let paper_b = repository.find_by_id(&request.paper_b_id)?.ok_or_else(|| {
+            AppError::new(
+                ErrorCode::FileNotFound,
+                "Paper B no longer exists in the library.",
+            )
+        })?;
+        (settings, paper_a, paper_b)
+    };
+    let analysis_a = paper_a.analysis.as_ref().ok_or_else(|| {
+        AppError::new(
+            ErrorCode::PaperNotAnalyzed,
+            format!("Analyze “{}” before comparing papers.", paper_a.title),
+        )
+    })?;
+    let analysis_b = paper_b.analysis.as_ref().ok_or_else(|| {
+        AppError::new(
+            ErrorCode::PaperNotAnalyzed,
+            format!("Analyze “{}” before comparing papers.", paper_b.title),
+        )
+    })?;
+    let input = serde_json::to_string_pretty(&serde_json::json!({
+        "paper_a": { "title": paper_a.title, "analysis": analysis_a },
+        "paper_b": { "title": paper_b.title, "analysis": analysis_b }
+    }))
+    .map_err(|error| {
+        AppError::new(
+            ErrorCode::Internal,
+            "The stored analyses could not be prepared for comparison.",
+        )
+        .detail(error.to_string())
+    })?;
+    let provider = providers.get(&settings.ai_provider)?;
+    record_operation(
+        database,
+        &request.request_id,
+        "compare",
+        "running",
+        "Paper comparison started",
+    );
+    let mut start = LogEvent::info(
+        "ai.provider",
+        "compare",
+        "Structured paper comparison started",
+    );
+    start.request_id = Some(request.request_id.clone());
+    start.provider = Some(provider.id().to_string());
+    start.model = Some(if settings.model.is_empty() {
+        "auto".into()
+    } else {
+        settings.model.clone()
+    });
+    start.input_character_count = Some(input.chars().count());
+    logger.log(start);
+    match provider.compare_papers(&input, &settings, token).await {
+        Ok(response) => {
+            record_operation(
+                database,
+                &request.request_id,
+                "compare",
+                "success",
+                "Paper comparison completed",
+            );
+            let mut event = LogEvent::info(
+                "ai.provider",
+                "compare",
+                "Structured paper comparison completed",
+            );
+            event.request_id = Some(request.request_id.clone());
+            event.provider = Some(provider.id().to_string());
+            event.model = Some(if settings.model.is_empty() {
+                "auto".into()
+            } else {
+                settings.model.clone()
+            });
+            event.input_character_count = Some(input.chars().count());
+            event.http_status = response.http_status;
+            event.parse_success = Some(true);
+            event.retry_count = Some(response.retry_count);
+            event.duration_ms = Some(started.elapsed().as_millis());
+            logger.log(event);
+            Ok(response.value)
+        }
+        Err(error) => {
+            record_operation(
+                database,
+                &request.request_id,
+                "compare",
+                "failed",
+                error.code_string(),
+            );
+            let mut event = LogEvent::new(
+                LogLevel::Error,
+                "ai.provider",
+                "compare",
+                error
+                    .detail
+                    .clone()
+                    .unwrap_or_else(|| error.message.clone()),
+            );
+            event.error_code = Some(error.code_string().to_string());
+            event.request_id = Some(request.request_id.clone());
+            event.provider = Some(provider.id().to_string());
+            event.parse_success = Some(false);
+            event.duration_ms = Some(started.elapsed().as_millis());
+            logger.log(event);
+            Err(error.request_id(&request.request_id))
+        }
+    }
 }
 
 #[tauri::command]

@@ -8,6 +8,7 @@ import { InMemorySettingsStorage } from "../settings/InMemorySettingsStorage";
 import { TauriSettingsStorage } from "../settings/TauriSettingsStorage";
 import { AnalysisService } from "./AnalysisService";
 import { PaperService } from "./PaperService";
+import { ComparisonService } from "./ComparisonService";
 import type { AIProvider } from "../providers/ai/AIProvider";
 
 export function createApplicationServices() {
@@ -24,8 +25,8 @@ export function createApplicationServices() {
     providers,
     paperService: new PaperService(repository, searchProvider),
     analysisService: new AnalysisService(tauri ? providers.lmstudio : providers.mock, repository),
+    comparisonService: new ComparisonService(tauri ? providers.lmstudio : providers.mock),
   };
 }
 
 export type ApplicationServices = ReturnType<typeof createApplicationServices>;
-

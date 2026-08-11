@@ -10,8 +10,8 @@ The project follows a stable-core / extensible-adapter design. A phase is comple
 | 4 | PDF/folder import, extraction, sections, open PDF | Complete |
 | 5 | LM Studio + Mock providers, analysis, validation, tracing | Complete |
 | 6 | Keyword and tag search | Complete |
-| 7 | Structured two-paper comparison | In progress |
-| 8 | Unit/integration tests, diagnostics and failure handling | Planned |
+| 7 | Structured two-paper comparison | Complete |
+| 8 | Unit/integration tests, diagnostics and failure handling | In progress |
 | 9 | UX polish, Windows build and demo validation | Planned |
 
 ## Definition of done
