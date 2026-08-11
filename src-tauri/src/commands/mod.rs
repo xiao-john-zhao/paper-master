@@ -26,6 +26,7 @@ pub fn get_app_info(paths: State<'_, AppPaths>, logger: State<'_, AppLogger>) ->
         log_file: logger.path().display().to_string(),
     }
 }
+pub mod ai;
 pub mod database;
 pub mod import;
 pub mod paper;

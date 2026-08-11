@@ -10,6 +10,7 @@ import { PaperDetail } from "../features/paper-detail/PaperDetail";
 import { DiagnosticsPage } from "../pages/DiagnosticsPage";
 import { SettingsPage } from "../pages/SettingsPage";
 import { createApplicationServices } from "../services/ApplicationServices";
+import { createOperationId } from "../services/PaperService";
 import type { AppSettings } from "../settings/types";
 import { normalizeAppError } from "../types/errors";
 import { APP_CONFIG } from "../config/appConfig";
@@ -26,6 +27,7 @@ export function App() {
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [analyzingId, setAnalyzingId] = useState<string>();
+  const [activeRequestId, setActiveRequestId] = useState<string>();
   const [toast, setToast] = useState<ToastMessage>();
   const toastTimer = useRef<number | undefined>(undefined);
 
@@ -86,17 +88,25 @@ export function App() {
 
   async function analyzeSelected() {
     if (!selected) return;
+    const requestId = createOperationId("analysis");
     setAnalyzingId(selected.id);
+    setActiveRequestId(requestId);
     setPapers((items) => items.map((paper) => paper.id === selected.id ? { ...paper, analysis_status: "analyzing" } : paper));
     try {
-      const result = await services.analysisService.analyze(selected);
+      const result = await services.analysisService.analyze(selected, requestId);
       setPapers((items) => items.map((paper) => paper.id === result.paper.id ? result.paper : paper));
       notify("success", "Analysis complete", `Request ${result.requestId}`);
     } catch (error) {
       const appError = normalizeAppError(error);
       setPapers((items) => items.map((paper) => paper.id === selected.id ? { ...paper, analysis_status: "failed", analysis_error: appError.message } : paper));
       notify("error", "AI analysis failed", appError.message);
-    } finally { setAnalyzingId(undefined); }
+    } finally { setAnalyzingId(undefined); setActiveRequestId(undefined); }
+  }
+
+  async function cancelAnalysis() {
+    if (!activeRequestId) return;
+    try { await services.analysisService.cancel(activeRequestId); notify("info", "Cancelling analysis", `Request ${activeRequestId}`); }
+    catch (error) { notify("error", "Analysis could not be cancelled", normalizeAppError(error).message); }
   }
 
   async function openSelected() {
@@ -126,7 +136,7 @@ export function App() {
           <PaperList papers={papers} selectedId={selectedId} compareIds={compareIds} loading={loading} onSelect={setSelectedId} onToggleCompare={toggleCompare}/>
           <footer className="library-count">{papers.length} paper{papers.length === 1 ? "" : "s"}</footer>
         </section>
-        <PaperDetail paper={selected} analyzing={analyzingId === selected?.id} onAnalyze={() => void analyzeSelected()} onOpen={() => void openSelected()} onDelete={() => void deleteSelected()}/>
+        <PaperDetail paper={selected} analyzing={analyzingId === selected?.id} onAnalyze={() => void analyzeSelected()} onCancel={() => void cancelAnalysis()} onOpen={() => void openSelected()} onDelete={() => void deleteSelected()}/>
       </div>}
       {view === "settings" && <SettingsPage storage={services.settingsStorage} providers={services.providers} onSaved={settingsSaved} onNotify={notify}/>} 
       {view === "diagnostics" && <DiagnosticsPage onNotify={notify}/>} 

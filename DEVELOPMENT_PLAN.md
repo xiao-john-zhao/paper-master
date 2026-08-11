@@ -8,8 +8,8 @@ The project follows a stable-core / extensible-adapter design. A phase is comple
 | 2 | Domain interfaces, three-pane UI, Settings and Diagnostics | Complete |
 | 3 | SQLite migrations, repository, CRUD and integrity checks | Complete |
 | 4 | PDF/folder import, extraction, sections, open PDF | Complete |
-| 5 | LM Studio + Mock providers, analysis, validation, tracing | In progress |
-| 6 | Keyword and tag search | Planned |
+| 5 | LM Studio + Mock providers, analysis, validation, tracing | Complete |
+| 6 | Keyword and tag search | In progress |
 | 7 | Structured two-paper comparison | Planned |
 | 8 | Unit/integration tests, diagnostics and failure handling | Planned |
 | 9 | UX polish, Windows build and demo validation | Planned |

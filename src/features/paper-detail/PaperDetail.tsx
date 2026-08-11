@@ -6,6 +6,7 @@ interface Props {
   paper?: Paper;
   analyzing: boolean;
   onAnalyze(): void;
+  onCancel(): void;
   onOpen(): void;
   onDelete(): void;
 }
@@ -34,7 +35,7 @@ function AnalysisContent({ paper }: { paper: Paper }) {
   );
 }
 
-export function PaperDetail({ paper, analyzing, onAnalyze, onOpen, onDelete }: Props) {
+export function PaperDetail({ paper, analyzing, onAnalyze, onCancel, onOpen, onDelete }: Props) {
   if (!paper) {
     return <section className="detail-empty"><div className="empty-document"><FileIcon/></div><strong>Select a paper</strong><span>Metadata and local AI analysis will appear here.</span></section>;
   }
@@ -44,7 +45,7 @@ export function PaperDetail({ paper, analyzing, onAnalyze, onOpen, onDelete }: P
         <div className="detail-title-block"><span className="document-type">PDF</span><h1>{paper.title}</h1><p>{formatAuthors(paper.authors)}{paper.year ? ` · ${paper.year}` : ""}</p></div>
         <div className="detail-actions">
           <button className="button secondary" onClick={onOpen}><ExternalIcon/>Open PDF</button>
-          <button className="button primary" onClick={onAnalyze} disabled={analyzing}>{analyzing ? <span className="mini-spinner light"/> : <SparkIcon/>}{analyzing ? "Analyzing…" : paper.analysis ? "Analyze again" : "AI Analyze"}</button>
+          <button className={`button primary ${analyzing ? "cancel-analysis" : ""}`} onClick={analyzing ? onCancel : onAnalyze}>{analyzing ? <span className="mini-spinner light"/> : <SparkIcon/>}{analyzing ? "Cancel analysis" : paper.analysis ? "Analyze again" : "AI Analyze"}</button>
           <div className="menu-wrap"><button className="icon-button" aria-label="More paper actions"><MoreIcon/></button><button className="delete-action" onClick={onDelete}>Delete from library</button></div>
         </div>
       </header>
@@ -61,4 +62,3 @@ export function PaperDetail({ paper, analyzing, onAnalyze, onOpen, onDelete }: P
     </section>
   );
 }
-

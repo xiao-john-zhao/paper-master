@@ -5,12 +5,12 @@ import type { AIProvider } from "./AIProvider";
 export class LMStudioProvider implements AIProvider {
   readonly id = "lmstudio" as const;
 
-  checkConnection() {
-    return invokeCommand<ConnectionResult>("check_ai_connection");
+  checkConnection(settings?: import("../../settings/types").AppSettings) {
+    return invokeCommand<ConnectionResult>("check_ai_connection", { settings });
   }
 
-  getModels() {
-    return invokeCommand<string[]>("get_ai_models");
+  getModels(settings?: import("../../settings/types").AppSettings) {
+    return invokeCommand<string[]>("get_ai_models", { settings });
   }
 
   async analyzePaper(request: AnalysisRequest) {
@@ -31,4 +31,3 @@ export class LMStudioProvider implements AIProvider {
     return invokeCommand<void>("cancel_ai_request", { requestId });
   }
 }
-

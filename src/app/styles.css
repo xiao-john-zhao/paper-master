@@ -67,6 +67,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .button svg { width: 16px; height: 16px; }
 .button.primary { border-color: var(--blue); background: var(--blue); color: #fff; }
 .button.primary:hover:not(:disabled) { border-color: var(--blue-hover); background: var(--blue-hover); }
+.button.primary.cancel-analysis:hover { border-color: #9f3030; background: #9f3030; }
 .button.secondary { border-color: var(--line-dark); background: #fff; color: #465368; }
 .button.secondary:hover:not(:disabled) { background: #f6f7f9; border-color: #b8c0cc; color: #263449; }
 .button.compact { padding: 0 9px; }

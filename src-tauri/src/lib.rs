@@ -1,3 +1,4 @@
+mod ai;
 mod commands;
 mod config;
 mod database;
@@ -12,6 +13,8 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(ai::AIProviderRegistry::new())
+        .manage(ai::registry::AIRequestRegistry::new())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -46,6 +49,11 @@ pub fn run() {
             commands::settings::get_settings,
             commands::settings::save_settings,
             commands::database::test_database,
+            commands::ai::check_ai_connection,
+            commands::ai::get_ai_models,
+            commands::ai::analyze_paper,
+            commands::ai::generate_paper_tags,
+            commands::ai::cancel_ai_request,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run paper-master");

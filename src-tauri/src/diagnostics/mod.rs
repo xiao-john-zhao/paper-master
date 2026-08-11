@@ -31,6 +31,18 @@ pub struct LogEvent {
     pub request_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u128>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_character_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_status: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parse_success: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_count: Option<usize>,
 }
 
 impl LogEvent {
@@ -65,6 +77,12 @@ impl LogEvent {
             error_code: None,
             request_id: None,
             duration_ms: None,
+            provider: None,
+            model: None,
+            input_character_count: None,
+            http_status: None,
+            parse_success: None,
+            retry_count: None,
         }
     }
 }

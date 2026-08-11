@@ -24,7 +24,7 @@ export function SettingsPage({ storage, providers, onSaved, onNotify }: Props) {
   async function testConnection() {
     setBusy(true); setConnection(undefined);
     try {
-      const result = await provider.checkConnection();
+      const result = await provider.checkConnection(settings);
       setConnection(result); setModels(result.models);
       if (!settings.model && result.models[0]) setSettings((value) => ({ ...value, model: result.models[0] }));
     } catch (error) {
@@ -63,4 +63,3 @@ export function SettingsPage({ storage, providers, onSaved, onNotify }: Props) {
     </main>
   );
 }
-

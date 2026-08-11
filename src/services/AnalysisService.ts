@@ -8,8 +8,7 @@ export class AnalysisService {
 
   setProvider(provider: AIProvider) { this.provider = provider; }
 
-  async analyze(paper: Paper) {
-    const requestId = createOperationId("analysis");
+  async analyze(paper: Paper, requestId = createOperationId("analysis")) {
     const analysis = await this.provider.analyzePaper({ paper_id: paper.id, request_id: requestId });
     const updated: Paper = { ...paper, analysis, tags: analysis.tags, analysis_status: "analyzed", analysis_error: undefined, updated_at: new Date().toISOString() };
     return { paper: await this.repository.update(updated), requestId };
@@ -17,4 +16,3 @@ export class AnalysisService {
 
   cancel(requestId: string) { return this.provider.cancel(requestId); }
 }
-
