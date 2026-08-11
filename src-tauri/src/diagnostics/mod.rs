@@ -47,6 +47,20 @@ pub struct LogEvent {
     pub parse_success: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_present: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_length: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_present: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_length: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls_present: Option<bool>,
 }
 
 impl LogEvent {
@@ -89,6 +103,13 @@ impl LogEvent {
             http_status: None,
             parse_success: None,
             retry_count: None,
+            stage: None,
+            finish_reason: None,
+            content_present: None,
+            content_length: None,
+            reasoning_present: None,
+            reasoning_length: None,
+            tool_calls_present: None,
         }
     }
 }
@@ -152,6 +173,13 @@ mod tests {
         event.model = Some("deepseek-r1-distill-llama-8b".into());
         event.http_status = Some(200);
         event.duration_ms = Some(321);
+        event.stage = Some("RESPONSE_RECEIVED".into());
+        event.finish_reason = Some("stop".into());
+        event.content_present = Some(false);
+        event.content_length = Some(0);
+        event.reasoning_present = Some(true);
+        event.reasoning_length = Some(512);
+        event.tool_calls_present = Some(false);
 
         let json = serde_json::to_value(event).expect("diagnostic JSON");
         assert_eq!(json["request_id"], "analysis-test-request");
@@ -161,7 +189,15 @@ mod tests {
         assert_eq!(json["model"], "deepseek-r1-distill-llama-8b");
         assert_eq!(json["http_status"], 200);
         assert_eq!(json["duration_ms"], 321);
+        assert_eq!(json["stage"], "RESPONSE_RECEIVED");
+        assert_eq!(json["finish_reason"], "stop");
+        assert_eq!(json["content_present"], false);
+        assert_eq!(json["content_length"], 0);
+        assert_eq!(json["reasoning_present"], true);
+        assert_eq!(json["reasoning_length"], 512);
+        assert_eq!(json["tool_calls_present"], false);
         assert!(json.get("prompt").is_none());
         assert!(json.get("paper_content").is_none());
+        assert!(json.get("reasoning_content").is_none());
     }
 }

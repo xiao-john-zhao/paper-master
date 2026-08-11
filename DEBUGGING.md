@@ -32,7 +32,35 @@ POST /v1/chat/completions
 
 LM Studio Server Logs are the quickest way to detect path loss. A paper-master analysis must show `POST /v1/chat/completions`. If the log instead shows `POST /chat/completions` together with `Unexpected endpoint or method`, the client has incorrectly replaced the `/v1` base path. HTTP 200 alone is not proof of success because LM Studio can return 200 for an invalid endpoint; paper-master also validates the JSON body and requires a non-empty `choices[0].message.content`. Invalid success bodies use `LMSTUDIO_INVALID_RESPONSE`.
 
-The Diagnostics JSONL transport event records `request_id`, `provider`, `method`, `endpoint`, `model`, `http_status`, and `duration_ms`. It never records the full paper text or complete prompt.
+The Diagnostics JSONL transport event records `request_id`, `provider`, `method`, `endpoint`, `model`, `http_status`, `finish_reason`, `content_present`, `content_length`, `reasoning_present`, `reasoning_length`, `tool_calls_present`, and `duration_ms`. It never records the full paper text, complete prompt, final response body, or reasoning text.
+
+Paper analysis requests use LM Studio's OpenAI-compatible `response_format.type=json_schema` mode. The JSON Schema is generated from the Rust `PaperAnalysisResult` runtime type, rejects additional properties, and requires every v2 analysis field. `max_tokens` comes from the persisted **Maximum AI output** setting (default: 8,192) so reasoning models retain bounded room for both reasoning and the final structured response.
+
+### AI response extraction
+
+Use the `stage` field to locate the exact stopping point for an analysis request:
+
+```text
+PDF_INPUT_READY
+REQUEST_BUILT
+REQUEST_SENT
+RESPONSE_RECEIVED
+FINAL_CONTENT_EXTRACTED
+JSON_PARSED
+SCHEMA_VALIDATED
+DATABASE_SAVED
+ANALYSIS_COMPLETED
+```
+
+An HTTP 200 response with empty `choices[0].message.content` stops at `FINAL_CONTENT_EXTRACTED` with `AI_FINAL_CONTENT_EMPTY`. Separate `reasoning_content` or `reasoning` is never used as the final answer; only its presence and character count are logged. `finish_reason=length` uses `AI_OUTPUT_TOKEN_LIMIT`. Syntactically invalid JSON uses `AI_INVALID_JSON`, while valid JSON that violates the generated schema uses `AI_SCHEMA_VALIDATION_FAILED`.
+
+The development-only minimal compatibility smoke test uses fictional metadata rather than a real paper:
+
+```powershell
+cargo test --manifest-path src-tauri/Cargo.toml ai::lm_studio::tests::live_minimal_structured_output_smoke -- --ignored --exact --nocapture
+```
+
+Set `PAPER_MASTER_LMSTUDIO_URL` or `PAPER_MASTER_LMSTUDIO_MODEL` to override the default local endpoint or `deepseek-r1-distill-llama-8b`. `PAPER_MASTER_LMSTUDIO_TIMEOUT_MS` can extend the read-only real-paper smoke test without changing the saved application setting. If the model reasons but returns no final content, the minimal check reports `MODEL_STRUCTURED_OUTPUT_INCOMPATIBLE`; it never parses the reasoning text.
 
 ## Subsystem checks
 
@@ -41,10 +69,10 @@ The Diagnostics JSONL transport event records `request_id`, `provider`, `method`
 - Mock AI: select **Mock (development)** in Settings to test views, persistence, parsing, and comparison without LM Studio.
 - PDF: inspect extraction character count, detected sections, warnings, and fallback status. `PDF_TEXT_EMPTY` usually indicates a scanned/image-only PDF.
 - PDF parser isolation: malformed object trees or unsupported font encodings are contained to one document and create a fallback record marked `PDF_READ_FAILED`; the rest of a folder import continues.
-- AI JSON: `AI_INVALID_JSON` records parse/retry status without recording the model reasoning or full response.
+- AI JSON: `AI_INVALID_JSON` and `AI_SCHEMA_VALIDATION_FAILED` record parse/retry status without recording the model reasoning or full response.
 - Chinese output/tags: English-only narrative output, tags lacking paper evidence, or fewer than three supported tags are rejected and sent through one constrained repair retry. The managed vocabulary is naming context only and is deliberately excluded from tag evidence checks.
 
-Common codes include `FILE_NOT_FOUND`, `DUPLICATE_PAPER`, `PDF_READ_FAILED`, `PDF_TEXT_EMPTY`, `DATABASE_READ_FAILED`, `DATABASE_WRITE_FAILED`, `LMSTUDIO_CONNECTION_FAILED`, `LMSTUDIO_MODEL_NOT_FOUND`, `LMSTUDIO_INVALID_RESPONSE`, `AI_TIMEOUT`, `AI_CANCELLED`, `AI_INVALID_JSON`, and `INVALID_SETTINGS`.
+Common codes include `FILE_NOT_FOUND`, `DUPLICATE_PAPER`, `PDF_READ_FAILED`, `PDF_TEXT_EMPTY`, `DATABASE_READ_FAILED`, `DATABASE_WRITE_FAILED`, `LMSTUDIO_CONNECTION_FAILED`, `LMSTUDIO_MODEL_NOT_FOUND`, `LMSTUDIO_INVALID_RESPONSE`, `AI_FINAL_CONTENT_EMPTY`, `AI_OUTPUT_TOKEN_LIMIT`, `MODEL_STRUCTURED_OUTPUT_INCOMPATIBLE`, `AI_TIMEOUT`, `AI_CANCELLED`, `AI_INVALID_JSON`, `AI_SCHEMA_VALIDATION_FAILED`, and `INVALID_SETTINGS`.
 
 ## Verification
 

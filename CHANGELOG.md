@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.2.1
+
+### Fixed
+
+- Treat HTTP 200 responses with empty `choices[0].message.content` as `AI_FINAL_CONTENT_EMPTY` without using or logging reasoning text.
+- Distinguish output-token exhaustion, invalid JSON syntax, schema validation failures, and structured-output incompatibility.
+- Request LM Studio JSON Schema structured output generated from the Rust response types and apply a configurable output-token limit.
+
+### Added
+
+- Record privacy-safe response diagnostics and explicit analysis-pipeline stages without prompts, paper text, or reasoning content.
+- Cover final-content extraction, schema strictness, and optional live LM Studio smoke tests.
+
 ## v0.2.0
 
 ### Fixed

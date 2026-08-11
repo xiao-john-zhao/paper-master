@@ -15,7 +15,7 @@ use crate::{
     },
     config::AI_STRUCTURED_RETRY_COUNT,
     domain::{
-        ai::{ConnectionResult, PaperComparisonResult},
+        ai::{AIResponseDiagnostics, ConnectionResult, PaperComparisonResult},
         paper::PaperAnalysisResult,
         settings::AppSettings,
     },
@@ -96,6 +96,29 @@ struct ChatCompletion {
     content: String,
     http_status: u16,
     endpoint: String,
+    diagnostics: AIResponseDiagnostics,
+}
+
+#[derive(Clone, Copy)]
+enum StructuredOutputSchema {
+    PaperAnalysis,
+    PaperComparison,
+}
+
+impl StructuredOutputSchema {
+    fn name(self) -> &'static str {
+        match self {
+            Self::PaperAnalysis => "paper_analysis_result",
+            Self::PaperComparison => "paper_comparison_result",
+        }
+    }
+
+    fn schema(self) -> serde_json::Value {
+        match self {
+            Self::PaperAnalysis => PaperAnalysisResult::response_json_schema(),
+            Self::PaperComparison => PaperComparisonResult::response_json_schema(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -205,9 +228,10 @@ impl AIProvider for LMStudioProvider {
                 &model,
                 settings,
                 cancellation.clone(),
+                StructuredOutputSchema::PaperAnalysis,
             )
             .await?;
-        let mut content = completion.content;
+        let mut content = completion.content.clone();
         match parse_analysis_response(&content)
             .and_then(|value| validate_analysis_tags(value, input))
         {
@@ -218,6 +242,7 @@ impl AIProvider for LMStudioProvider {
                 method: Some("POST".into()),
                 endpoint: Some(completion.endpoint),
                 model: Some(model.clone()),
+                response_diagnostics: Some(completion.diagnostics),
             }),
             Err(first_error) => {
                 for retry in 1..=AI_STRUCTURED_RETRY_COUNT {
@@ -231,9 +256,10 @@ impl AIProvider for LMStudioProvider {
                             &model,
                             settings,
                             cancellation.clone(),
+                            StructuredOutputSchema::PaperAnalysis,
                         )
                         .await?;
-                    content = completion.content;
+                    content = completion.content.clone();
                     if let Ok(value) = parse_analysis_response(&content)
                         .and_then(|value| validate_analysis_tags(value, input))
                     {
@@ -244,10 +270,11 @@ impl AIProvider for LMStudioProvider {
                             method: Some("POST".into()),
                             endpoint: Some(completion.endpoint),
                             model: Some(model.clone()),
+                            response_diagnostics: Some(completion.diagnostics),
                         });
                     }
                 }
-                Err(first_error)
+                Err(first_error.response_diagnostics(completion.diagnostics))
             }
         }
     }
@@ -280,9 +307,10 @@ impl AIProvider for LMStudioProvider {
                 &model,
                 settings,
                 cancellation.clone(),
+                StructuredOutputSchema::PaperComparison,
             )
             .await?;
-        let mut content = completion.content;
+        let mut content = completion.content.clone();
         match parse_comparison_response(&content) {
             Ok(value) => Ok(ProviderResponse {
                 value,
@@ -291,6 +319,7 @@ impl AIProvider for LMStudioProvider {
                 method: Some("POST".into()),
                 endpoint: Some(completion.endpoint),
                 model: Some(model.clone()),
+                response_diagnostics: Some(completion.diagnostics),
             }),
             Err(first_error) => {
                 for retry in 1..=AI_STRUCTURED_RETRY_COUNT {
@@ -302,9 +331,10 @@ impl AIProvider for LMStudioProvider {
                             &model,
                             settings,
                             cancellation.clone(),
+                            StructuredOutputSchema::PaperComparison,
                         )
                         .await?;
-                    content = completion.content;
+                    content = completion.content.clone();
                     if let Ok(value) = parse_comparison_response(&content) {
                         return Ok(ProviderResponse {
                             value,
@@ -313,10 +343,11 @@ impl AIProvider for LMStudioProvider {
                             method: Some("POST".into()),
                             endpoint: Some(completion.endpoint),
                             model: Some(model.clone()),
+                            response_diagnostics: Some(completion.diagnostics),
                         });
                     }
                 }
-                Err(first_error)
+                Err(first_error.response_diagnostics(completion.diagnostics))
             }
         }
     }
@@ -537,28 +568,47 @@ impl LMStudioProvider {
         model: &str,
         settings: &AppSettings,
         cancellation: CancellationToken,
+        output_schema: StructuredOutputSchema,
     ) -> AppResult<ChatCompletion> {
         let client = client(settings)?;
         let url = build_lm_studio_url(settings, LmStudioApi::OpenAi, "chat/completions")?;
         let endpoint = url.path().to_string();
+        let response_format = serde_json::json!({
+            "type": "json_schema",
+            "json_schema": {
+                "name": output_schema.name(),
+                "strict": true,
+                "schema": output_schema.schema(),
+            }
+        });
         let body = serde_json::json!({
             "model": model,
             "messages": [RequestMessage { role: "system", content: system }, RequestMessage { role: "user", content: user }],
             "temperature": settings.temperature,
+            "max_tokens": settings.max_output_tokens,
+            "response_format": response_format,
             "stream": false
         });
+        let started = Instant::now();
         let request = client.post(url).json(&body).send();
         let response = tokio::select! {
             _ = cancellation.cancelled() => return Err(AppError::new(ErrorCode::AiCancelled, "AI analysis was cancelled.")),
-            value = request => value.map_err(request_error)?,
+            value = request => value.map_err(|error| request_error(error).stage("REQUEST_SENT"))?,
         };
         let status = response.status().as_u16();
         if !response.status().is_success() {
+            let diagnostics = AIResponseDiagnostics {
+                http_status: Some(status),
+                duration_ms: Some(started.elapsed().as_millis()),
+                ..Default::default()
+            };
             return Err(AppError::new(
                 ErrorCode::LmstudioConnectionFailed,
                 "LM Studio rejected the analysis request.",
             )
-            .detail(format!("HTTP {status}")));
+            .detail(format!("HTTP {status}"))
+            .stage("RESPONSE_RECEIVED")
+            .response_diagnostics(diagnostics));
         }
         let body: serde_json::Value = response.json().await.map_err(|error| {
             AppError::new(
@@ -566,29 +616,169 @@ impl LMStudioProvider {
                 "LM Studio returned HTTP success with an invalid Chat Completions response.",
             )
             .detail(error.to_string())
+            .stage("RESPONSE_RECEIVED")
+            .response_diagnostics(AIResponseDiagnostics {
+                http_status: Some(status),
+                duration_ms: Some(started.elapsed().as_millis()),
+                ..Default::default()
+            })
         })?;
-        let content = body
-            .get("choices")
-            .and_then(serde_json::Value::as_array)
-            .filter(|choices| !choices.is_empty())
-            .and_then(|choices| choices[0].get("message"))
-            .and_then(serde_json::Value::as_object)
-            .and_then(|message| message.get("content"))
-            .and_then(serde_json::Value::as_str)
-            .filter(|value| !value.trim().is_empty())
+        extract_chat_completion(&body, status, endpoint, started.elapsed().as_millis())
+    }
+
+    #[cfg(test)]
+    async fn minimal_structured_output_check(
+        &self,
+        settings: &AppSettings,
+    ) -> AppResult<(PaperAnalysisResult, AIResponseDiagnostics)> {
+        const MINIMAL_INPUT: &str = r#"Return an analysis of the following fictional paper metadata.
+
+Title:
+Fair Scheduling in Wireless Networks
+
+Abstract:
+This paper studies queue fairness and proposes a deficit-based scheduler."#;
+        let model = self.resolve_model(settings).await?;
+        let completion = self
+            .send_chat(
+                ANALYSIS_SYSTEM_PROMPT,
+                MINIMAL_INPUT,
+                &model,
+                settings,
+                CancellationToken::new(),
+                StructuredOutputSchema::PaperAnalysis,
+            )
+            .await
+            .map_err(|error| {
+                if matches!(&error.code, ErrorCode::AiFinalContentEmpty) {
+                    let mut incompatible = AppError::new(
+                        ErrorCode::ModelStructuredOutputIncompatible,
+                        "The selected model did not produce final structured content.",
+                    )
+                    .stage("FINAL_CONTENT_EXTRACTED");
+                    if let Some(diagnostics) = error.response_diagnostics {
+                        incompatible = incompatible.response_diagnostics(diagnostics);
+                    }
+                    incompatible
+                } else {
+                    error
+                }
+            })?;
+        let diagnostics = completion.diagnostics.clone();
+        let result = parse_analysis_response(&completion.content)
+            .map_err(|error| error.response_diagnostics(completion.diagnostics))?;
+        Ok((result, diagnostics))
+    }
+}
+
+fn extract_chat_completion(
+    body: &serde_json::Value,
+    status: u16,
+    endpoint: String,
+    duration_ms: u128,
+) -> AppResult<ChatCompletion> {
+    let choices = body
+        .get("choices")
+        .and_then(serde_json::Value::as_array)
+        .filter(|choices| !choices.is_empty())
+        .ok_or_else(|| invalid_chat_envelope(status, duration_ms, "Expected choices[0]."))?;
+    let choice = choices[0].as_object().ok_or_else(|| {
+        invalid_chat_envelope(status, duration_ms, "Expected choices[0] to be an object.")
+    })?;
+    let message = choice
+        .get("message")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| {
+            invalid_chat_envelope(status, duration_ms, "Expected choices[0].message.")
+        })?;
+    let finish_reason = choice
+        .get("finish_reason")
+        .and_then(serde_json::Value::as_str)
+        .map(ToOwned::to_owned);
+    let reasoning = message
+        .get("reasoning_content")
+        .or_else(|| message.get("reasoning"));
+    let reasoning_length = reasoning.map(diagnostic_value_length).unwrap_or_default();
+    let reasoning_present = reasoning_length > 0;
+    let tool_calls_present = message.get("tool_calls").is_some_and(|value| {
+        !value.is_null() && value.as_array().is_none_or(|items| !items.is_empty())
+    });
+    let content_value = message.get("content");
+    let content = match content_value {
+        Some(value) if value.is_null() => String::new(),
+        Some(value) => value
+            .as_str()
             .ok_or_else(|| {
-                AppError::new(
-                    ErrorCode::LmstudioInvalidResponse,
-                    "LM Studio returned HTTP success without a usable Chat Completions message.",
+                invalid_chat_envelope(
+                    status,
+                    duration_ms,
+                    "Expected choices[0].message.content to be a string or null.",
                 )
-                .detail("Expected a non-empty choices[0].message.content string.")
             })?
-            .to_string();
-        Ok(ChatCompletion {
-            content,
-            http_status: status,
-            endpoint,
-        })
+            .to_string(),
+        None => String::new(),
+    };
+    let content_length = content.chars().count();
+    let content_present = !content.trim().is_empty();
+    let diagnostics = AIResponseDiagnostics {
+        http_status: Some(status),
+        finish_reason: finish_reason.clone(),
+        content_present,
+        content_length,
+        reasoning_present,
+        reasoning_length,
+        tool_calls_present,
+        duration_ms: Some(duration_ms),
+    };
+
+    if finish_reason.as_deref() == Some("length") {
+        return Err(AppError::new(
+            ErrorCode::AiOutputTokenLimit,
+            "The local model reached the configured output token limit before completing the final answer.",
+        )
+        .detail("choices[0].finish_reason was length.")
+        .stage("FINAL_CONTENT_EXTRACTED")
+        .response_diagnostics(diagnostics));
+    }
+    if !content_present {
+        return Err(AppError::new(
+            ErrorCode::AiFinalContentEmpty,
+            "The local model completed processing but did not return a final answer. Please retry or adjust the model configuration.",
+        )
+        .detail("choices[0].message.content was empty; reasoning content was not used.")
+        .stage("FINAL_CONTENT_EXTRACTED")
+        .response_diagnostics(diagnostics));
+    }
+
+    Ok(ChatCompletion {
+        content,
+        http_status: status,
+        endpoint,
+        diagnostics,
+    })
+}
+
+fn invalid_chat_envelope(status: u16, duration_ms: u128, detail: &str) -> AppError {
+    AppError::new(
+        ErrorCode::LmstudioInvalidResponse,
+        "LM Studio returned HTTP success with an invalid Chat Completions response.",
+    )
+    .detail(detail)
+    .stage("RESPONSE_RECEIVED")
+    .response_diagnostics(AIResponseDiagnostics {
+        http_status: Some(status),
+        duration_ms: Some(duration_ms),
+        ..Default::default()
+    })
+}
+
+fn diagnostic_value_length(value: &serde_json::Value) -> usize {
+    match value {
+        serde_json::Value::Null => 0,
+        serde_json::Value::String(text) => text.chars().count(),
+        other => serde_json::to_string(other)
+            .map(|text| text.chars().count())
+            .unwrap_or_default(),
     }
 }
 
@@ -597,7 +787,7 @@ fn client(settings: &AppSettings) -> AppResult<Client> {
         .no_proxy()
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_millis(settings.request_timeout_ms))
-        .user_agent("paper-master/0.1")
+        .user_agent("paper-master/0.2.1")
         .build()
         .map_err(|error| {
             AppError::new(
@@ -751,6 +941,7 @@ mod tests {
                 "test-model",
                 &settings,
                 CancellationToken::new(),
+                StructuredOutputSchema::PaperAnalysis,
             )
             .await
             .expect_err("invalid envelope");
@@ -766,9 +957,14 @@ mod tests {
             let (mut stream, _) = listener.accept().expect("request");
             let request = read_request(&mut stream);
             assert!(request.starts_with("POST /v1/chat/completions "));
+            assert!(request.contains(r#""response_format":{"json_schema":"#));
+            assert!(request.contains(r#""type":"json_schema""#));
+            assert!(request.contains(r#""name":"paper_analysis_result""#));
+            assert!(request.contains(r#""additionalProperties":false"#));
+            assert!(request.contains(r#""max_tokens":8192"#));
             write_json_response(
                 &mut stream,
-                r#"{"choices":[{"message":{"role":"assistant","content":"{\"ok\":true}"}}]}"#,
+                r#"{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"{\"ok\":true}"}}]}"#,
             );
         });
         let settings = AppSettings {
@@ -782,13 +978,207 @@ mod tests {
                 "test-model",
                 &settings,
                 CancellationToken::new(),
+                StructuredOutputSchema::PaperAnalysis,
             )
             .await
             .expect("valid envelope");
         assert_eq!(completion.endpoint, "/v1/chat/completions");
         assert_eq!(completion.http_status, 200);
         assert_eq!(completion.content, r#"{"ok":true}"#);
+        assert_eq!(
+            completion.diagnostics.finish_reason.as_deref(),
+            Some("stop")
+        );
+        assert!(completion.diagnostics.content_present);
+        assert!(!completion.diagnostics.reasoning_present);
         server.join().expect("server");
+    }
+
+    #[tokio::test]
+    async fn rejects_empty_final_content_without_using_reasoning() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("request");
+            let _request = read_request(&mut stream);
+            write_json_response(
+                &mut stream,
+                r#"{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"","reasoning_content":"private chain of thought that must never be used"}}]}"#,
+            );
+        });
+        let settings = AppSettings {
+            base_url: format!("http://{address}"),
+            ..Default::default()
+        };
+        let error = LMStudioProvider
+            .send_chat(
+                "Return JSON.",
+                "Return an object.",
+                "test-model",
+                &settings,
+                CancellationToken::new(),
+                StructuredOutputSchema::PaperAnalysis,
+            )
+            .await
+            .expect_err("empty final content");
+        assert_eq!(error.code_string(), "AI_FINAL_CONTENT_EMPTY");
+        assert_eq!(error.stage.as_deref(), Some("FINAL_CONTENT_EXTRACTED"));
+        let diagnostics = error.response_diagnostics.expect("safe diagnostics");
+        assert!(!diagnostics.content_present);
+        assert_eq!(diagnostics.content_length, 0);
+        assert!(diagnostics.reasoning_present);
+        assert!(diagnostics.reasoning_length > 0);
+        server.join().expect("server");
+    }
+
+    #[tokio::test]
+    async fn distinguishes_output_token_limit_from_empty_content() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("request");
+            let _request = read_request(&mut stream);
+            write_json_response(
+                &mut stream,
+                r#"{"choices":[{"finish_reason":"length","message":{"role":"assistant","content":"","reasoning_content":"unfinished reasoning"}}]}"#,
+            );
+        });
+        let settings = AppSettings {
+            base_url: format!("http://{address}"),
+            ..Default::default()
+        };
+        let error = LMStudioProvider
+            .send_chat(
+                "Return JSON.",
+                "Return an object.",
+                "test-model",
+                &settings,
+                CancellationToken::new(),
+                StructuredOutputSchema::PaperAnalysis,
+            )
+            .await
+            .expect_err("token limit");
+        assert_eq!(error.code_string(), "AI_OUTPUT_TOKEN_LIMIT");
+        assert_eq!(
+            error
+                .response_diagnostics
+                .expect("safe diagnostics")
+                .finish_reason
+                .as_deref(),
+            Some("length")
+        );
+        server.join().expect("server");
+    }
+
+    #[test]
+    fn generated_paper_schema_is_strict_and_complete() {
+        let schema = PaperAnalysisResult::response_json_schema();
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["additionalProperties"], false);
+        let required = schema["required"].as_array().expect("required fields");
+        for field in [
+            "schema_version",
+            "research_problem",
+            "research_scenario",
+            "core_method",
+            "key_innovations",
+            "key_contributions",
+            "main_results",
+            "limitations",
+            "tags",
+            "ai_summary",
+        ] {
+            assert!(required.iter().any(|item| item == field), "missing {field}");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a running local LM Studio server and a structured-output-capable model"]
+    async fn live_minimal_structured_output_smoke() {
+        let mut settings = AppSettings::default();
+        settings.base_url = std::env::var("PAPER_MASTER_LMSTUDIO_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:1234/v1".into());
+        settings.model = std::env::var("PAPER_MASTER_LMSTUDIO_MODEL")
+            .unwrap_or_else(|_| "deepseek-r1-distill-llama-8b".into());
+        settings.request_timeout_ms = std::env::var("PAPER_MASTER_LMSTUDIO_TIMEOUT_MS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(300_000);
+        let (result, diagnostics) = LMStudioProvider
+            .minimal_structured_output_check(&settings)
+            .await
+            .expect("model must return schema-valid final content");
+        eprintln!(
+            "content_present={} content_length={} reasoning_present={} reasoning_length={} finish_reason={}",
+            diagnostics.content_present,
+            diagnostics.content_length,
+            diagnostics.reasoning_present,
+            diagnostics.reasoning_length,
+            diagnostics.finish_reason.as_deref().unwrap_or("none")
+        );
+        assert!(diagnostics.content_present);
+        assert!(diagnostics.content_length > 0);
+        assert_ne!(diagnostics.finish_reason.as_deref(), Some("length"));
+        assert_eq!(result.schema_version, "2");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the local paper database and a running LM Studio server"]
+    async fn live_real_paper_structured_output_smoke() {
+        let database_path = std::env::var_os("PAPER_MASTER_REAL_PAPER_DB")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("APPDATA").map(|directory| {
+                    std::path::PathBuf::from(directory)
+                        .join("app.papermaster.desktop")
+                        .join("paper-master.db")
+                })
+            })
+            .expect("set PAPER_MASTER_REAL_PAPER_DB or APPDATA");
+        let connection = rusqlite::Connection::open_with_flags(
+            &database_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .expect("open local paper database read-only");
+        let (title, abstract_text, extracted_text): (String, Option<String>, String) = connection
+            .query_row(
+                "SELECT title,abstract_text,extracted_text FROM papers WHERE length(extracted_text)>1000 ORDER BY updated_at DESC LIMIT 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("a real extracted paper");
+        let bounded_text = extracted_text.chars().take(24_000).collect::<String>();
+        let input = format!(
+            "Title: {title}\nAbstract: {}\n\nPaper content:\n{bounded_text}",
+            abstract_text.unwrap_or_else(|| "Not reported".into())
+        );
+        let mut settings = AppSettings::default();
+        settings.base_url = std::env::var("PAPER_MASTER_LMSTUDIO_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:1234/v1".into());
+        settings.model = std::env::var("PAPER_MASTER_LMSTUDIO_MODEL")
+            .unwrap_or_else(|_| "deepseek-r1-distill-llama-8b".into());
+        settings.request_timeout_ms = std::env::var("PAPER_MASTER_LMSTUDIO_TIMEOUT_MS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(300_000);
+        let response = LMStudioProvider
+            .analyze_paper(&input, &settings, CancellationToken::new())
+            .await
+            .expect("real paper must return a schema-valid final analysis");
+        let diagnostics = response
+            .response_diagnostics
+            .expect("LM Studio response diagnostics");
+        eprintln!(
+            "title={title:?} content_present={} content_length={} reasoning_present={} reasoning_length={} finish_reason={} retry_count={}",
+            diagnostics.content_present,
+            diagnostics.content_length,
+            diagnostics.reasoning_present,
+            diagnostics.reasoning_length,
+            diagnostics.finish_reason.as_deref().unwrap_or("none"),
+            response.retry_count
+        );
+        assert!(diagnostics.content_present);
+        assert_eq!(response.value.schema_version, "2");
     }
 
     #[tokio::test]

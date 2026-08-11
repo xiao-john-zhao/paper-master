@@ -85,7 +85,7 @@ impl PaperRepository for SqlitePaperRepository<'_> {
             "INSERT INTO papers (id,file_path,file_name,title,authors_json,year,abstract_text,extracted_text,ai_summary,research_problem,core_method,key_contributions_json,main_results,limitations,tags_json,ai_analyzed,analysis_status,analysis_error,pdf_diagnostics_json,created_at,updated_at,analysis_schema_version,research_scenario,key_innovations_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24)",
             params![
                 paper.id, paper.file_path, paper.file_name, paper.title, json(&paper.authors)?, paper.year, paper.abstract_text,
-                extracted_text, analysis.and_then(|value| value.ai_summary.as_deref()), analysis.map(|value| value.research_problem.as_str()),
+                extracted_text, analysis.map(|value| value.ai_summary.as_str()), analysis.map(|value| value.research_problem.as_str()),
                 analysis.map(|value| value.core_method.as_str()), json(&analysis.map(|value| &value.key_contributions).cloned().unwrap_or_default())?,
                 analysis.map(|value| value.main_results.as_str()), analysis.map(|value| value.limitations.as_str()), json(&paper.tags)?,
                 i64::from(paper.analysis.is_some()), paper.analysis_status, paper.analysis_error, optional_json(paper.pdf_diagnostics.as_ref())?, paper.created_at, paper.updated_at,
@@ -105,7 +105,7 @@ impl PaperRepository for SqlitePaperRepository<'_> {
         let changed = self.connection.execute(
             "UPDATE papers SET file_path=?2,file_name=?3,title=?4,authors_json=?5,year=?6,abstract_text=?7,ai_summary=?8,research_problem=?9,core_method=?10,key_contributions_json=?11,main_results=?12,limitations=?13,tags_json=?14,ai_analyzed=?15,analysis_status=?16,analysis_error=?17,pdf_diagnostics_json=?18,updated_at=?19,analysis_schema_version=?20,research_scenario=?21,key_innovations_json=?22 WHERE id=?1",
             params![paper.id,paper.file_path,paper.file_name,paper.title,json(&paper.authors)?,paper.year,paper.abstract_text,
-                analysis.and_then(|value| value.ai_summary.as_deref()),analysis.map(|value| value.research_problem.as_str()),analysis.map(|value| value.core_method.as_str()),
+                analysis.map(|value| value.ai_summary.as_str()),analysis.map(|value| value.research_problem.as_str()),analysis.map(|value| value.core_method.as_str()),
                 json(&analysis.map(|value| &value.key_contributions).cloned().unwrap_or_default())?,analysis.map(|value| value.main_results.as_str()),analysis.map(|value| value.limitations.as_str()),
                 json(&paper.tags)?,i64::from(paper.analysis.is_some()),paper.analysis_status,paper.analysis_error,optional_json(paper.pdf_diagnostics.as_ref())?,paper.updated_at,
                 analysis.map(|value| value.schema_version.as_str()).unwrap_or("2"),analysis.map(|value| value.research_scenario.as_str()),
@@ -228,7 +228,7 @@ fn map_paper(row: &Row<'_>) -> rusqlite::Result<Paper> {
         main_results: main_results.unwrap_or_default(),
         limitations: limitations.unwrap_or_default(),
         tags: tags.clone(),
-        ai_summary,
+        ai_summary: ai_summary.unwrap_or_default(),
     });
     Ok(Paper {
         id: row.get(0)?,
@@ -288,7 +288,7 @@ fn matches_query(paper: &Paper, query: &PaperQuery) -> bool {
         &paper.authors.join(" "),
         paper.abstract_value().unwrap_or_default(),
         analysis
-            .and_then(|value| value.ai_summary.as_deref())
+            .map(|value| value.ai_summary.as_str())
             .unwrap_or_default(),
         analysis
             .map(|value| value.research_problem.as_str())
@@ -416,7 +416,7 @@ mod tests {
             main_results: "生成稳定的模块化总结".into(),
             limitations: "依赖输入论文中的明确证据".into(),
             tags: vec!["文献总结".into(), "结构化输出".into(), "本地大模型".into()],
-            ai_summary: Some("以统一契约生成模块化论文总结。".into()),
+            ai_summary: "以统一契约生成模块化论文总结。".into(),
         });
         value.tags = value.analysis.as_ref().expect("analysis").tags.clone();
         value.analysis_status = "analyzed".into();

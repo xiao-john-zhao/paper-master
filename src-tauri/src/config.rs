@@ -4,6 +4,7 @@ pub const DEFAULT_LM_STUDIO_URL: &str = "http://127.0.0.1:1234/v1";
 pub const DEFAULT_TEMPERATURE: f32 = 0.15;
 pub const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 pub const MAX_ANALYSIS_INPUT_CHARACTERS: usize = 24_000;
+pub const DEFAULT_MAX_OUTPUT_TOKENS: u32 = 8_192;
 pub const AI_STRUCTURED_RETRY_COUNT: usize = 1;
 
 #[derive(Debug, Clone)]

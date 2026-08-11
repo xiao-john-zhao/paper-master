@@ -16,7 +16,10 @@ use crate::{
     },
     diagnostics::{AppLogger, LogEvent, LogLevel},
     domain::{
-        ai::{AnalysisRequest, CompareRequest, ConnectionResult, PaperComparisonResult},
+        ai::{
+            AIResponseDiagnostics, AnalysisRequest, CompareRequest, ConnectionResult,
+            PaperComparisonResult,
+        },
         paper::{Paper, PaperAnalysisResult, PaperQuery},
         settings::AppSettings,
     },
@@ -128,6 +131,20 @@ async fn analyze_inner(
         .saturating_sub(managed_tags.chars().count());
     let mut input = PaperAnalysisInputBuilder::new(paper_budget).build(&paper, &extracted_text)?;
     input.push_str(&managed_tags);
+    log_pipeline_stage(
+        logger,
+        &request.request_id,
+        "PDF_INPUT_READY",
+        "Paper input is ready for AI analysis",
+        Some(input.chars().count()),
+    );
+    log_pipeline_stage(
+        logger,
+        &request.request_id,
+        "REQUEST_BUILT",
+        "Structured AI request was built",
+        Some(input.chars().count()),
+    );
     let provider = providers.get(&settings.ai_provider)?;
     paper.analysis_status = "analyzing".to_string();
     paper.analysis_error = None;
@@ -152,6 +169,7 @@ async fn analyze_inner(
         settings.model.clone()
     });
     start.input_character_count = Some(input.chars().count());
+    start.stage = Some("REQUEST_SENT".into());
     logger.log(start);
 
     match provider.analyze_paper(&input, &settings, token).await {
@@ -177,12 +195,42 @@ async fn analyze_inner(
                 })
             });
             transport_event.http_status = response.http_status;
-            transport_event.duration_ms = Some(started.elapsed().as_millis());
+            transport_event.stage = Some("RESPONSE_RECEIVED".into());
+            if let Some(diagnostics) = response.response_diagnostics.as_ref() {
+                attach_response_diagnostics(&mut transport_event, diagnostics);
+            } else {
+                transport_event.duration_ms = Some(started.elapsed().as_millis());
+            }
             logger.log(transport_event);
+
+            let mut extraction_event = LogEvent::info(
+                if provider.id() == "lmstudio" {
+                    "ai.lmstudio"
+                } else {
+                    "ai.mock"
+                },
+                "extract_final_content",
+                "Final AI response content extracted",
+            );
+            extraction_event.request_id = Some(request.request_id.clone());
+            extraction_event.provider = Some(provider.id().to_string());
+            extraction_event.stage = Some("FINAL_CONTENT_EXTRACTED".into());
+            if let Some(diagnostics) = response.response_diagnostics.as_ref() {
+                attach_response_diagnostics(&mut extraction_event, diagnostics);
+            }
+            logger.log(extraction_event);
+
+            let mut json_event =
+                LogEvent::info("ai.parser", "parse_json", "AI response JSON parsed");
+            json_event.request_id = Some(request.request_id.clone());
+            json_event.stage = Some("JSON_PARSED".into());
+            json_event.parse_success = Some(true);
+            logger.log(json_event);
 
             let mut parse_event =
                 LogEvent::info("ai.parser", "validate", "Structured AI response validated");
             parse_event.request_id = Some(request.request_id.clone());
+            parse_event.stage = Some("SCHEMA_VALIDATED".into());
             parse_event.parse_success = Some(true);
             parse_event.retry_count = Some(response.retry_count);
             logger.log(parse_event);
@@ -201,6 +249,7 @@ async fn analyze_inner(
                 "Structured analysis saved",
             );
             save_event.request_id = Some(request.request_id.clone());
+            save_event.stage = Some("DATABASE_SAVED".into());
             logger.log(save_event);
             record_operation(
                 database,
@@ -230,6 +279,7 @@ async fn analyze_inner(
             event.parse_success = Some(true);
             event.retry_count = Some(response.retry_count);
             event.duration_ms = Some(started.elapsed().as_millis());
+            event.stage = Some("ANALYSIS_COMPLETED".into());
             logger.log(event);
             Ok(response.value)
         }
@@ -247,6 +297,22 @@ async fn analyze_inner(
                 "failed",
                 error.code_string(),
             );
+            if let Some(diagnostics) = error.response_diagnostics.as_ref() {
+                let mut response_event =
+                    LogEvent::info("ai.lmstudio", "response", "AI provider response received");
+                response_event.request_id = Some(request.request_id.clone());
+                response_event.provider = Some(provider.id().to_string());
+                response_event.method = Some("POST".into());
+                response_event.endpoint = Some("/v1/chat/completions".into());
+                response_event.model = Some(if settings.model.is_empty() {
+                    "auto".into()
+                } else {
+                    settings.model.clone()
+                });
+                response_event.stage = Some("RESPONSE_RECEIVED".into());
+                attach_response_diagnostics(&mut response_event, diagnostics);
+                logger.log(response_event);
+            }
             let mut event = LogEvent::new(
                 LogLevel::Error,
                 "ai.provider",
@@ -271,6 +337,10 @@ async fn analyze_inner(
             event.input_character_count = Some(input.chars().count());
             event.parse_success = Some(false);
             event.duration_ms = Some(started.elapsed().as_millis());
+            event.stage = error.stage.clone();
+            if let Some(diagnostics) = error.response_diagnostics.as_ref() {
+                attach_response_diagnostics(&mut event, diagnostics);
+            }
             logger.log(event);
             Err(error.request_id(&request.request_id))
         }
@@ -430,6 +500,9 @@ async fn compare_inner(
             event.parse_success = Some(true);
             event.retry_count = Some(response.retry_count);
             event.duration_ms = Some(started.elapsed().as_millis());
+            if let Some(diagnostics) = response.response_diagnostics.as_ref() {
+                attach_response_diagnostics(&mut event, diagnostics);
+            }
             logger.log(event);
             Ok(response.value)
         }
@@ -464,6 +537,10 @@ async fn compare_inner(
             });
             event.parse_success = Some(false);
             event.duration_ms = Some(started.elapsed().as_millis());
+            event.stage = error.stage.clone();
+            if let Some(diagnostics) = error.response_diagnostics.as_ref() {
+                attach_response_diagnostics(&mut event, diagnostics);
+            }
             logger.log(event);
             Err(error.request_id(&request.request_id))
         }
@@ -478,6 +555,31 @@ pub fn cancel_ai_request(requests: State<'_, AIRequestRegistry>, request_id: Str
 fn load_settings(database: &Database) -> AppResult<AppSettings> {
     let connection = database.connection()?;
     SqliteSettingsStorage::new(&connection).get()
+}
+
+fn log_pipeline_stage(
+    logger: &AppLogger,
+    request_id: &str,
+    stage: &str,
+    message: &str,
+    input_character_count: Option<usize>,
+) {
+    let mut event = LogEvent::info("ai.pipeline", "stage", message);
+    event.request_id = Some(request_id.to_string());
+    event.stage = Some(stage.to_string());
+    event.input_character_count = input_character_count;
+    logger.log(event);
+}
+
+fn attach_response_diagnostics(event: &mut LogEvent, diagnostics: &AIResponseDiagnostics) {
+    event.http_status = diagnostics.http_status;
+    event.finish_reason = diagnostics.finish_reason.clone();
+    event.content_present = Some(diagnostics.content_present);
+    event.content_length = Some(diagnostics.content_length);
+    event.reasoning_present = Some(diagnostics.reasoning_present);
+    event.reasoning_length = Some(diagnostics.reasoning_length);
+    event.tool_calls_present = Some(diagnostics.tool_calls_present);
+    event.duration_ms = diagnostics.duration_ms;
 }
 
 fn record_operation(

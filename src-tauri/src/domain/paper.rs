@@ -1,25 +1,26 @@
+use schemars::{schema_for, JsonSchema};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PaperAnalysisResult {
-    #[serde(default = "analysis_schema_version")]
     pub schema_version: String,
     pub research_problem: String,
-    #[serde(default)]
     pub research_scenario: String,
     pub core_method: String,
-    #[serde(default)]
     pub key_innovations: Vec<String>,
     pub key_contributions: Vec<String>,
     pub main_results: String,
     pub limitations: String,
     pub tags: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ai_summary: Option<String>,
+    pub ai_summary: String,
 }
 
-fn analysis_schema_version() -> String {
-    "2".to_string()
+impl PaperAnalysisResult {
+    pub fn response_json_schema() -> serde_json::Value {
+        serde_json::to_value(schema_for!(PaperAnalysisResult))
+            .expect("PaperAnalysisResult schema must serialize")
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

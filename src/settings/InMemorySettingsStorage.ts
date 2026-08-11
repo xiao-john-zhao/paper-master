@@ -8,6 +8,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   temperature: APP_CONFIG.defaultTemperature,
   request_timeout_ms: APP_CONFIG.defaultTimeoutMs,
   max_analysis_input_characters: APP_CONFIG.maxAnalysisInputCharacters,
+  max_output_tokens: APP_CONFIG.maxOutputTokens,
   log_level: APP_CONFIG.logLevel,
   privacy_mode: "local_only",
 };
@@ -17,4 +18,3 @@ export class InMemorySettingsStorage implements SettingsStorage {
   async get() { return structuredClone(this.settings); }
   async save(settings: AppSettings) { this.settings = structuredClone(settings); return this.get(); }
 }
-

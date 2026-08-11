@@ -6,6 +6,10 @@ export type AppErrorCode =
   | "LMSTUDIO_CONNECTION_FAILED"
   | "LMSTUDIO_MODEL_NOT_FOUND"
   | "LMSTUDIO_INVALID_RESPONSE"
+  | "AI_FINAL_CONTENT_EMPTY"
+  | "AI_OUTPUT_TOKEN_LIMIT"
+  | "AI_SCHEMA_VALIDATION_FAILED"
+  | "MODEL_STRUCTURED_OUTPUT_INCOMPATIBLE"
   | "AI_TIMEOUT"
   | "AI_CANCELLED"
   | "AI_INVALID_JSON"
@@ -21,12 +25,14 @@ export interface AppErrorPayload {
   message: string;
   detail?: string;
   request_id?: string;
+  stage?: string;
 }
 
 export class AppError extends Error {
   readonly code: AppErrorCode;
   readonly detail?: string;
   readonly requestId?: string;
+  readonly stage?: string;
 
   constructor(payload: AppErrorPayload) {
     super(payload.message);
@@ -34,6 +40,7 @@ export class AppError extends Error {
     this.code = payload.code;
     this.detail = payload.detail;
     this.requestId = payload.request_id;
+    this.stage = payload.stage;
   }
 }
 

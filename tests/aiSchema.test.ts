@@ -13,6 +13,7 @@ describe("AI response schemas", () => {
       main_results: "A measurable result",
       limitations: "A stated limitation",
       tags: ["local AI", "PDF", "research"],
+      ai_summary: "A concise overview",
     });
 
     expect(result.schema_version).toBe("2");
@@ -33,6 +34,7 @@ describe("AI response schemas", () => {
       main_results: "result",
       limitations: "limitation",
       tags: Array.from({ length: 9 }, (_, index) => `tag-${index}`),
+      ai_summary: "summary",
     })).toThrow();
   });
 
@@ -47,6 +49,7 @@ describe("AI response schemas", () => {
       main_results: "result",
       limitations: "limitation",
       tags: ["tag-1", "tag-2", "tag-3"],
+      ai_summary: "summary",
     };
 
     expect(paperAnalysisSchema.safeParse(base).success).toBe(true);

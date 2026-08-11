@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     domain::settings::AppSettings,
     domain::{
-        ai::{ConnectionResult, PaperComparisonResult},
+        ai::{AIResponseDiagnostics, ConnectionResult, PaperComparisonResult},
         paper::PaperAnalysisResult,
     },
     error::{AppError, AppResult, ErrorCode},
@@ -26,6 +26,7 @@ pub struct ProviderResponse<T> {
     pub method: Option<String>,
     pub endpoint: Option<String>,
     pub model: Option<String>,
+    pub response_diagnostics: Option<AIResponseDiagnostics>,
 }
 
 #[async_trait]

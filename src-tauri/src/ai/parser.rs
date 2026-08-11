@@ -7,8 +7,13 @@ use crate::{
 
 pub fn parse_analysis_response(raw: &str) -> AppResult<PaperAnalysisResult> {
     let json = sanitize_json(raw)?;
-    let mut value: PaperAnalysisResult = serde_json::from_str(&json)
-        .map_err(|error| invalid(format!("Analysis JSON parsing failed: {error}")))?;
+    let decoded: serde_json::Value = serde_json::from_str(&json).map_err(|error| {
+        invalid_json(format!("Analysis JSON parsing failed: {error}")).stage("JSON_PARSED")
+    })?;
+    let mut value: PaperAnalysisResult = serde_json::from_value(decoded).map_err(|error| {
+        invalid_schema(format!("Analysis schema validation failed: {error}"))
+            .stage("SCHEMA_VALIDATED")
+    })?;
     value.tags = unique_nonempty(value.tags);
     value.key_innovations = unique_nonempty(value.key_innovations);
     value.key_contributions = unique_nonempty(value.key_contributions);
@@ -20,12 +25,17 @@ pub fn parse_analysis_response(raw: &str) -> AppResult<PaperAnalysisResult> {
         || value.key_innovations.is_empty()
         || value.key_contributions.is_empty()
     {
-        return Err(invalid("Analysis JSON contains empty required fields."));
+        return Err(
+            invalid_schema("Analysis JSON contains empty required fields.")
+                .stage("SCHEMA_VALIDATED"),
+        );
     }
     if !(3..=8).contains(&value.tags.len()) {
-        return Err(invalid("Analysis JSON must contain 3 to 8 tags."));
+        return Err(
+            invalid_schema("Analysis JSON must contain 3 to 8 tags.").stage("SCHEMA_VALIDATED")
+        );
     }
-    let summary_is_chinese = value.ai_summary.as_deref().is_none_or(contains_cjk);
+    let summary_is_chinese = contains_cjk(&value.ai_summary);
     if ![
         value.research_problem.as_str(),
         value.research_scenario.as_str(),
@@ -42,9 +52,10 @@ pub fn parse_analysis_response(raw: &str) -> AppResult<PaperAnalysisResult> {
             .all(|item| contains_cjk(item))
         || !summary_is_chinese
     {
-        return Err(invalid(
-            "Analysis fields must be written in Simplified Chinese.",
-        ));
+        return Err(
+            invalid_schema("Analysis fields must be written in Simplified Chinese.")
+                .stage("SCHEMA_VALIDATED"),
+        );
     }
     value.schema_version = "2".to_string();
     Ok(value)
@@ -52,8 +63,13 @@ pub fn parse_analysis_response(raw: &str) -> AppResult<PaperAnalysisResult> {
 
 pub fn parse_comparison_response(raw: &str) -> AppResult<PaperComparisonResult> {
     let json = sanitize_json(raw)?;
-    let mut value: PaperComparisonResult = serde_json::from_str(&json)
-        .map_err(|error| invalid(format!("Comparison JSON parsing failed: {error}")))?;
+    let decoded: serde_json::Value = serde_json::from_str(&json).map_err(|error| {
+        invalid_json(format!("Comparison JSON parsing failed: {error}")).stage("JSON_PARSED")
+    })?;
+    let mut value: PaperComparisonResult = serde_json::from_value(decoded).map_err(|error| {
+        invalid_schema(format!("Comparison schema validation failed: {error}"))
+            .stage("SCHEMA_VALIDATED")
+    })?;
     value.common_points = unique_nonempty(value.common_points);
     value.key_differences = unique_nonempty(value.key_differences);
     if value.common_points.is_empty()
@@ -62,7 +78,10 @@ pub fn parse_comparison_response(raw: &str) -> AppResult<PaperComparisonResult> 
         || value.contribution_comparison.trim().is_empty()
         || value.summary.trim().is_empty()
     {
-        return Err(invalid("Comparison JSON contains empty required fields."));
+        return Err(
+            invalid_schema("Comparison JSON contains empty required fields.")
+                .stage("SCHEMA_VALIDATED"),
+        );
     }
     if !value.common_points.iter().all(|item| contains_cjk(item))
         || !value.key_differences.iter().all(|item| contains_cjk(item))
@@ -70,9 +89,10 @@ pub fn parse_comparison_response(raw: &str) -> AppResult<PaperComparisonResult> 
         || !contains_cjk(&value.contribution_comparison)
         || !contains_cjk(&value.summary)
     {
-        return Err(invalid(
-            "Comparison fields must be written in Simplified Chinese.",
-        ));
+        return Err(
+            invalid_schema("Comparison fields must be written in Simplified Chinese.")
+                .stage("SCHEMA_VALIDATED"),
+        );
     }
     Ok(value)
 }
@@ -95,9 +115,10 @@ pub fn validate_analysis_tags(
         .retain(|tag| tag_is_supported(tag, paper_content));
     value.tags = unique_nonempty(value.tags);
     if !(3..=8).contains(&value.tags.len()) {
-        return Err(invalid(
+        return Err(invalid_schema(
             "Fewer than three generated tags have explicit support in the paper content.",
-        ));
+        )
+        .stage("SCHEMA_VALIDATED"));
     }
     Ok(value)
 }
@@ -133,12 +154,12 @@ pub fn sanitize_json(raw: &str) -> AppResult<String> {
         .trim();
     let start = without_fence
         .find('{')
-        .ok_or_else(|| invalid("The model response does not contain a JSON object."))?;
+        .ok_or_else(|| invalid_json("The model response does not contain a JSON object."))?;
     let end = without_fence
         .rfind('}')
-        .ok_or_else(|| invalid("The model response contains an incomplete JSON object."))?;
+        .ok_or_else(|| invalid_json("The model response contains an incomplete JSON object."))?;
     if end < start {
-        return Err(invalid(
+        return Err(invalid_json(
             "The model response contains an invalid JSON object.",
         ));
     }
@@ -218,15 +239,23 @@ fn normalize_evidence_text(value: &str) -> String {
         .collect()
 }
 
-fn invalid(detail: impl Into<String>) -> AppError {
+fn invalid_json(detail: impl Into<String>) -> AppError {
     AppError::new(ErrorCode::AiInvalidJson, "The local model returned an invalid structured result. Try again or use Mock provider for diagnostics.").detail(detail)
+}
+
+fn invalid_schema(detail: impl Into<String>) -> AppError {
+    AppError::new(
+        ErrorCode::AiSchemaValidationFailed,
+        "The local model returned JSON that does not match the paper analysis schema.",
+    )
+    .detail(detail)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const VALID: &str = r#"{"schema_version":"2","research_problem":"研究问题","research_scenario":"应用场景","core_method":"核心方法","key_innovations":["主要创新"],"key_contributions":["主要贡献"],"main_results":"主要结果","limitations":"研究局限","tags":["标签一","标签二","标签三"],}"#;
+    const VALID: &str = r#"{"schema_version":"2","research_problem":"研究问题","research_scenario":"应用场景","core_method":"核心方法","key_innovations":["主要创新"],"key_contributions":["主要贡献"],"main_results":"主要结果","limitations":"研究局限","tags":["标签一","标签二","标签三"],"ai_summary":"一句话总结",}"#;
 
     #[test]
     fn removes_fences_reasoning_and_trailing_commas() {
@@ -244,7 +273,7 @@ mod tests {
             parse_analysis_response(&raw)
                 .expect_err("tags")
                 .code_string(),
-            "AI_INVALID_JSON"
+            "AI_SCHEMA_VALIDATION_FAILED"
         );
     }
 
@@ -255,7 +284,7 @@ mod tests {
             parse_analysis_response(&raw)
                 .expect_err("scenario")
                 .code_string(),
-            "AI_INVALID_JSON"
+            "AI_SCHEMA_VALIDATION_FAILED"
         );
     }
 
@@ -272,6 +301,16 @@ mod tests {
         assert_eq!(
             parse_analysis_response(&raw)
                 .expect_err("language")
+                .code_string(),
+            "AI_SCHEMA_VALIDATION_FAILED"
+        );
+    }
+
+    #[test]
+    fn rejects_syntactically_invalid_json_before_schema_validation() {
+        assert_eq!(
+            parse_analysis_response(r#"{"research_problem": "未完成"#)
+                .expect_err("invalid JSON")
                 .code_string(),
             "AI_INVALID_JSON"
         );

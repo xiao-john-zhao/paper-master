@@ -83,6 +83,11 @@ fn validate(settings: &AppSettings) -> AppResult<()> {
             "Maximum analysis input must be between 4,000 and 100,000 characters.",
         ));
     }
+    if !(512..=32_768).contains(&settings.max_output_tokens) {
+        return Err(invalid(
+            "Maximum AI output must be between 512 and 32,768 tokens.",
+        ));
+    }
     if settings.privacy_mode != "local_only" {
         return Err(invalid(
             "Only Local Only privacy mode is supported in v0.1.",

@@ -10,7 +10,7 @@ export const paperAnalysisSchema = z.object({
   main_results: z.string().trim().min(1),
   limitations: z.string().trim().min(1),
   tags: z.array(z.string().trim().min(1)).min(3).max(8),
-  ai_summary: z.string().trim().optional(),
+  ai_summary: z.string().trim().min(1),
 });
 
 export const paperComparisonSchema = z.object({

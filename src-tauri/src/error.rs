@@ -1,5 +1,7 @@
 use serde::Serialize;
 
+use crate::domain::ai::AIResponseDiagnostics;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
@@ -10,6 +12,10 @@ pub enum ErrorCode {
     LmstudioConnectionFailed,
     LmstudioModelNotFound,
     LmstudioInvalidResponse,
+    AiFinalContentEmpty,
+    AiOutputTokenLimit,
+    AiSchemaValidationFailed,
+    ModelStructuredOutputIncompatible,
     AiTimeout,
     AiCancelled,
     AiInvalidJson,
@@ -29,6 +35,10 @@ pub struct AppError {
     pub detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+    #[serde(skip)]
+    pub response_diagnostics: Option<AIResponseDiagnostics>,
 }
 
 impl AppError {
@@ -38,6 +48,8 @@ impl AppError {
             message: message.into(),
             detail: None,
             request_id: None,
+            stage: None,
+            response_diagnostics: None,
         }
     }
 
@@ -51,6 +63,16 @@ impl AppError {
         self
     }
 
+    pub fn stage(mut self, stage: impl Into<String>) -> Self {
+        self.stage = Some(stage.into());
+        self
+    }
+
+    pub fn response_diagnostics(mut self, diagnostics: AIResponseDiagnostics) -> Self {
+        self.response_diagnostics = Some(diagnostics);
+        self
+    }
+
     pub fn code_string(&self) -> &'static str {
         match self.code {
             ErrorCode::PdfReadFailed => "PDF_READ_FAILED",
@@ -60,6 +82,10 @@ impl AppError {
             ErrorCode::LmstudioConnectionFailed => "LMSTUDIO_CONNECTION_FAILED",
             ErrorCode::LmstudioModelNotFound => "LMSTUDIO_MODEL_NOT_FOUND",
             ErrorCode::LmstudioInvalidResponse => "LMSTUDIO_INVALID_RESPONSE",
+            ErrorCode::AiFinalContentEmpty => "AI_FINAL_CONTENT_EMPTY",
+            ErrorCode::AiOutputTokenLimit => "AI_OUTPUT_TOKEN_LIMIT",
+            ErrorCode::AiSchemaValidationFailed => "AI_SCHEMA_VALIDATION_FAILED",
+            ErrorCode::ModelStructuredOutputIncompatible => "MODEL_STRUCTURED_OUTPUT_INCOMPATIBLE",
             ErrorCode::AiTimeout => "AI_TIMEOUT",
             ErrorCode::AiCancelled => "AI_CANCELLED",
             ErrorCode::AiInvalidJson => "AI_INVALID_JSON",
