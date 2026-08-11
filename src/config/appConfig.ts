@@ -1,6 +1,6 @@
 export const APP_CONFIG = {
   appName: "paper-master",
-  version: "0.1.0",
+  version: "0.2.0",
   defaultBaseUrl: "http://127.0.0.1:1234/v1",
   defaultTemperature: 0.15,
   defaultTimeoutMs: 120_000,
@@ -15,4 +15,3 @@ export const APP_CONFIG = {
     cloudProvider: false,
   },
 } as const;
-

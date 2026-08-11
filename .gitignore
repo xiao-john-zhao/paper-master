@@ -19,3 +19,5 @@ Thumbs.db
 .vscode/
 src-tauri/gen/
 .cargo-home/
+application/*.exe
+application/*.lnk

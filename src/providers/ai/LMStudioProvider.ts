@@ -13,6 +13,10 @@ export class LMStudioProvider implements AIProvider {
     return invokeCommand<string[]>("get_ai_models", { settings });
   }
 
+  loadModel(settings?: import("../../settings/types").AppSettings) {
+    return invokeCommand<ConnectionResult>("load_ai_model", { settings });
+  }
+
   async analyzePaper(request: AnalysisRequest) {
     const result = await invokeCommand<unknown>("analyze_paper", { request });
     return paperAnalysisSchema.parse(result);

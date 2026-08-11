@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     ai::{
-        parser::{parse_analysis_response, parse_comparison_response},
+        parser::{parse_analysis_response, parse_comparison_response, validate_analysis_tags},
         prompt::{
             build_analysis_user_prompt, build_comparison_user_prompt, ANALYSIS_SYSTEM_PROMPT,
             COMPARISON_SYSTEM_PROMPT, REPAIR_ANALYSIS_PROMPT, REPAIR_COMPARISON_PROMPT,
@@ -32,6 +32,52 @@ struct ModelsResponse {
 #[derive(Deserialize)]
 struct ModelItem {
     id: String,
+}
+
+#[derive(Deserialize)]
+struct NativeModelsResponse {
+    #[serde(default)]
+    models: Vec<NativeModelItem>,
+}
+
+#[derive(Deserialize)]
+struct NativeModelItem {
+    key: String,
+    #[serde(rename = "type")]
+    model_type: String,
+    #[serde(default)]
+    loaded_instances: Vec<LoadedModelInstance>,
+}
+
+#[derive(Deserialize)]
+struct LoadedModelInstance {
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct LegacyModelsResponse {
+    #[serde(default)]
+    data: Vec<LegacyModelItem>,
+}
+
+#[derive(Deserialize)]
+struct LegacyModelItem {
+    id: String,
+    #[serde(rename = "type", default)]
+    model_type: String,
+    #[serde(default)]
+    state: String,
+}
+
+#[derive(Deserialize)]
+struct LoadModelResponse {
+    model_instance_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct ModelAvailability {
+    id: String,
+    loaded_instance: Option<String>,
 }
 #[derive(Deserialize)]
 struct ChatResponse {
@@ -60,23 +106,82 @@ impl AIProvider for LMStudioProvider {
 
     async fn check_connection(&self, settings: &AppSettings) -> ConnectionResult {
         let started = Instant::now();
-        match self.fetch_models(settings).await {
-            Ok(models) if models.is_empty() => ConnectionResult { state: "model_not_loaded".into(), message: "LM Studio is connected, but no model is loaded. Load a model in LM Studio and try again.".into(), latency_ms: Some(started.elapsed().as_millis()), models },
-            Ok(models) => ConnectionResult { state: "connected".into(), message: format!("Connected to LM Studio. {} model{} available.", models.len(), if models.len() == 1 { "" } else { "s" }), latency_ms: Some(started.elapsed().as_millis()), models },
-            Err(error) => ConnectionResult { state: if matches!(error.code, ErrorCode::LmstudioConnectionFailed) { "disconnected" } else { "connection_failed" }.into(), message: error.message, latency_ms: Some(started.elapsed().as_millis()), models: Vec::new() },
+        match self.fetch_model_catalog(settings).await {
+            Ok(catalog) if catalog.is_empty() => ConnectionResult {
+                state: "model_not_loaded".into(),
+                message:
+                    "已连接 LM Studio，但没有找到可用的本地语言模型。请先在 LM Studio 下载模型。"
+                        .into(),
+                latency_ms: Some(started.elapsed().as_millis()),
+                models: Vec::new(),
+                loaded_models: Vec::new(),
+            },
+            Ok(catalog) => {
+                let models = catalog
+                    .iter()
+                    .map(|model| model.id.clone())
+                    .collect::<Vec<_>>();
+                let loaded_models = catalog
+                    .iter()
+                    .filter_map(|model| model.loaded_instance.clone())
+                    .collect::<Vec<_>>();
+                ConnectionResult {
+                    state: if loaded_models.is_empty() {
+                        "model_not_loaded"
+                    } else {
+                        "connected"
+                    }
+                    .into(),
+                    message: if loaded_models.is_empty() {
+                        format!(
+                            "已发现 {} 个本地模型，尚未加载。选择模型后点击“加载并测试”。",
+                            models.len()
+                        )
+                    } else {
+                        format!(
+                            "LM Studio 连接正常，已加载 {} 个模型。",
+                            loaded_models.len()
+                        )
+                    },
+                    latency_ms: Some(started.elapsed().as_millis()),
+                    models,
+                    loaded_models,
+                }
+            }
+            Err(error) => ConnectionResult {
+                state: if matches!(error.code, ErrorCode::LmstudioConnectionFailed) {
+                    "disconnected"
+                } else {
+                    "connection_failed"
+                }
+                .into(),
+                message: error.message,
+                latency_ms: Some(started.elapsed().as_millis()),
+                models: Vec::new(),
+                loaded_models: Vec::new(),
+            },
         }
     }
 
     async fn get_models(&self, settings: &AppSettings) -> AppResult<Vec<String>> {
-        let models = self.fetch_models(settings).await?;
+        let models = self
+            .fetch_model_catalog(settings)
+            .await?
+            .into_iter()
+            .map(|model| model.id)
+            .collect::<Vec<_>>();
         if models.is_empty() {
             Err(AppError::new(
                 ErrorCode::LmstudioModelNotFound,
-                "LM Studio is running, but no model is loaded.",
+                "LM Studio 已启动，但没有找到已下载的语言模型。",
             ))
         } else {
             Ok(models)
         }
+    }
+
+    async fn load_model(&self, settings: &AppSettings) -> AppResult<String> {
+        self.resolve_and_load_model(settings).await
     }
 
     async fn analyze_paper(
@@ -96,7 +201,9 @@ impl AIProvider for LMStudioProvider {
                 cancellation.clone(),
             )
             .await?;
-        match parse_analysis_response(&content) {
+        match parse_analysis_response(&content)
+            .and_then(|value| validate_analysis_tags(value, input))
+        {
             Ok(value) => Ok(ProviderResponse {
                 value,
                 http_status: Some(status),
@@ -104,7 +211,9 @@ impl AIProvider for LMStudioProvider {
             }),
             Err(first_error) => {
                 for retry in 1..=AI_STRUCTURED_RETRY_COUNT {
-                    let repair = format!("{REPAIR_ANALYSIS_PROMPT}\n\nRESPONSE:\n{content}");
+                    let repair = format!(
+                        "{REPAIR_ANALYSIS_PROMPT}\n\n论文内容：\n{input}\n\n待修复响应：\n{content}"
+                    );
                     (content, status) = self
                         .send_chat(
                             REPAIR_ANALYSIS_PROMPT,
@@ -114,7 +223,9 @@ impl AIProvider for LMStudioProvider {
                             cancellation.clone(),
                         )
                         .await?;
-                    if let Ok(value) = parse_analysis_response(&content) {
+                    if let Ok(value) = parse_analysis_response(&content)
+                        .and_then(|value| validate_analysis_tags(value, input))
+                    {
                         return Ok(ProviderResponse {
                             value,
                             http_status: Some(status),
@@ -190,46 +301,199 @@ impl AIProvider for LMStudioProvider {
 }
 
 impl LMStudioProvider {
-    async fn fetch_models(&self, settings: &AppSettings) -> AppResult<Vec<String>> {
+    async fn fetch_model_catalog(
+        &self,
+        settings: &AppSettings,
+    ) -> AppResult<Vec<ModelAvailability>> {
+        if let Some(models) = self.fetch_native_models(settings).await? {
+            return Ok(models);
+        }
+        if let Some(models) = self.fetch_legacy_models(settings).await? {
+            return Ok(models);
+        }
+        self.fetch_openai_models(settings).await
+    }
+
+    async fn fetch_native_models(
+        &self,
+        settings: &AppSettings,
+    ) -> AppResult<Option<Vec<ModelAvailability>>> {
+        let response = client(settings)?
+            .get(native_endpoint(settings, "models")?)
+            .send()
+            .await
+            .map_err(request_error)?;
+        if matches!(response.status().as_u16(), 404 | 405) {
+            return Ok(None);
+        }
+        if !response.status().is_success() {
+            return Err(AppError::new(
+                ErrorCode::LmstudioConnectionFailed,
+                "LM Studio 在读取本地模型列表时返回错误。",
+            )
+            .detail(format!("HTTP {}", response.status().as_u16())));
+        }
+        let body: NativeModelsResponse = response.json().await.map_err(|error| {
+            AppError::new(
+                ErrorCode::LmstudioConnectionFailed,
+                "LM Studio 返回了无法识别的模型列表。",
+            )
+            .detail(error.to_string())
+        })?;
+        Ok(Some(
+            body.models
+                .into_iter()
+                .filter(|model| model.model_type != "embedding")
+                .filter(|model| !model.key.trim().is_empty())
+                .map(|model| ModelAvailability {
+                    id: model.key,
+                    loaded_instance: model
+                        .loaded_instances
+                        .into_iter()
+                        .next()
+                        .map(|instance| instance.id),
+                })
+                .collect(),
+        ))
+    }
+
+    async fn fetch_legacy_models(
+        &self,
+        settings: &AppSettings,
+    ) -> AppResult<Option<Vec<ModelAvailability>>> {
+        let response = client(settings)?
+            .get(legacy_endpoint(settings, "models")?)
+            .send()
+            .await
+            .map_err(request_error)?;
+        if matches!(response.status().as_u16(), 404 | 405) {
+            return Ok(None);
+        }
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+        let body: LegacyModelsResponse = response.json().await.map_err(|error| {
+            AppError::new(
+                ErrorCode::LmstudioConnectionFailed,
+                "LM Studio 返回了无法识别的兼容模型列表。",
+            )
+            .detail(error.to_string())
+        })?;
+        Ok(Some(
+            body.data
+                .into_iter()
+                .filter(|model| !matches!(model.model_type.as_str(), "embeddings" | "embedding"))
+                .filter(|model| !model.id.trim().is_empty())
+                .map(|model| ModelAvailability {
+                    loaded_instance: (model.state == "loaded").then(|| model.id.clone()),
+                    id: model.id,
+                })
+                .collect(),
+        ))
+    }
+
+    async fn fetch_openai_models(
+        &self,
+        settings: &AppSettings,
+    ) -> AppResult<Vec<ModelAvailability>> {
         let client = client(settings)?;
         let url = endpoint(settings, "models")?;
         let response = client.get(url).send().await.map_err(request_error)?;
         if !response.status().is_success() {
             return Err(AppError::new(
                 ErrorCode::LmstudioConnectionFailed,
-                "LM Studio returned an error while listing models.",
+                "LM Studio 在读取兼容模型列表时返回错误。",
             )
             .detail(format!("HTTP {}", response.status().as_u16())));
         }
         let body: ModelsResponse = response.json().await.map_err(|error| {
             AppError::new(
                 ErrorCode::LmstudioConnectionFailed,
-                "LM Studio returned an invalid models response.",
+                "LM Studio 返回了无法识别的兼容模型列表。",
             )
             .detail(error.to_string())
         })?;
         Ok(body
             .data
             .into_iter()
-            .map(|model| model.id)
-            .filter(|id| !id.trim().is_empty())
+            .filter(|model| !model.id.trim().is_empty())
+            .map(|model| ModelAvailability {
+                loaded_instance: Some(model.id.clone()),
+                id: model.id,
+            })
             .collect())
     }
 
     async fn resolve_model(&self, settings: &AppSettings) -> AppResult<String> {
-        let models = self.get_models(settings).await?;
-        if settings.model.trim().is_empty() {
-            return Ok(models[0].clone());
+        self.resolve_and_load_model(settings).await
+    }
+
+    async fn resolve_and_load_model(&self, settings: &AppSettings) -> AppResult<String> {
+        let catalog = self.fetch_model_catalog(settings).await?;
+        if catalog.is_empty() {
+            return Err(AppError::new(
+                ErrorCode::LmstudioModelNotFound,
+                "LM Studio 中没有可用的本地语言模型。",
+            ));
         }
-        models
-            .into_iter()
-            .find(|model| model == &settings.model)
-            .ok_or_else(|| {
-                AppError::new(
-                    ErrorCode::LmstudioModelNotFound,
-                    "The selected model is not loaded in LM Studio.",
-                )
-            })
+        let selected = if settings.model.trim().is_empty() {
+            catalog
+                .iter()
+                .find(|model| model.loaded_instance.is_some())
+                .unwrap_or(&catalog[0])
+        } else {
+            catalog
+                .iter()
+                .find(|model| {
+                    model.id == settings.model
+                        || model.loaded_instance.as_deref() == Some(settings.model.as_str())
+                })
+                .ok_or_else(|| {
+                    AppError::new(
+                        ErrorCode::LmstudioModelNotFound,
+                        "设置中选择的模型在 LM Studio 中不存在，请刷新模型列表后重新选择。",
+                    )
+                    .detail(format!("Selected model: {}", settings.model))
+                })?
+        };
+        if let Some(instance) = &selected.loaded_instance {
+            return Ok(instance.clone());
+        }
+        Ok(self
+            .load_native_model(settings, &selected.id)
+            .await?
+            .unwrap_or_else(|| selected.id.clone()))
+    }
+
+    async fn load_native_model(
+        &self,
+        settings: &AppSettings,
+        model: &str,
+    ) -> AppResult<Option<String>> {
+        let response = client(settings)?
+            .post(native_endpoint(settings, "models/load")?)
+            .json(&serde_json::json!({ "model": model }))
+            .send()
+            .await
+            .map_err(request_error)?;
+        if matches!(response.status().as_u16(), 404 | 405) {
+            return Ok(None);
+        }
+        if !response.status().is_success() {
+            return Err(AppError::new(
+                ErrorCode::LmstudioModelNotFound,
+                "LM Studio 无法加载所选模型，请检查内存/显存和模型文件。",
+            )
+            .detail(format!("HTTP {}", response.status().as_u16())));
+        }
+        let body: LoadModelResponse = response.json().await.map_err(|error| {
+            AppError::new(
+                ErrorCode::LmstudioConnectionFailed,
+                "LM Studio 返回了无法识别的模型加载结果。",
+            )
+            .detail(error.to_string())
+        })?;
+        Ok(Some(body.model_instance_id))
     }
 
     async fn send_chat(
@@ -302,17 +566,7 @@ fn client(settings: &AppSettings) -> AppResult<Client> {
 }
 
 fn endpoint(settings: &AppSettings, suffix: &str) -> AppResult<url::Url> {
-    let mut base = url::Url::parse(&settings.base_url).map_err(|error| {
-        AppError::new(ErrorCode::InvalidSettings, "LM Studio Base URL is invalid.")
-            .detail(error.to_string())
-    })?;
-    if base.scheme() != "http" || !matches!(base.host_str(), Some("localhost") | Some("127.0.0.1"))
-    {
-        return Err(AppError::new(
-            ErrorCode::InvalidSettings,
-            "Local Only mode permits AI requests only to localhost or 127.0.0.1.",
-        ));
-    }
+    let mut base = local_base_url(settings)?;
     if !base.path().ends_with('/') {
         base.set_path(&format!("{}/", base.path()));
     }
@@ -323,6 +577,47 @@ fn endpoint(settings: &AppSettings, suffix: &str) -> AppResult<url::Url> {
         )
         .detail(error.to_string())
     })
+}
+
+fn native_endpoint(settings: &AppSettings, suffix: &str) -> AppResult<url::Url> {
+    management_endpoint(settings, "api/v1", suffix)
+}
+
+fn legacy_endpoint(settings: &AppSettings, suffix: &str) -> AppResult<url::Url> {
+    management_endpoint(settings, "api/v0", suffix)
+}
+
+fn management_endpoint(
+    settings: &AppSettings,
+    api_path: &str,
+    suffix: &str,
+) -> AppResult<url::Url> {
+    let mut base = local_base_url(settings)?;
+    base.set_path(&format!("/{api_path}/"));
+    base.set_query(None);
+    base.set_fragment(None);
+    base.join(suffix).map_err(|error| {
+        AppError::new(
+            ErrorCode::InvalidSettings,
+            "LM Studio management endpoint could not be constructed.",
+        )
+        .detail(error.to_string())
+    })
+}
+
+fn local_base_url(settings: &AppSettings) -> AppResult<url::Url> {
+    let base = url::Url::parse(&settings.base_url).map_err(|error| {
+        AppError::new(ErrorCode::InvalidSettings, "LM Studio Base URL is invalid.")
+            .detail(error.to_string())
+    })?;
+    if base.scheme() != "http" || !matches!(base.host_str(), Some("localhost") | Some("127.0.0.1"))
+    {
+        return Err(AppError::new(
+            ErrorCode::InvalidSettings,
+            "Local Only mode permits AI requests only to localhost or 127.0.0.1.",
+        ));
+    }
+    Ok(base)
 }
 
 fn request_error(error: reqwest::Error) -> AppError {
@@ -340,6 +635,11 @@ fn request_error(error: reqwest::Error) -> AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        io::{Read, Write},
+        net::{TcpListener, TcpStream},
+        thread,
+    };
 
     #[test]
     fn only_loopback_endpoints_are_allowed() {
@@ -348,6 +648,10 @@ mod tests {
             .expect("local")
             .as_str()
             .ends_with("/v1/models"));
+        assert!(native_endpoint(&local, "models/load")
+            .expect("native")
+            .as_str()
+            .ends_with("/api/v1/models/load"));
         let external = AppSettings {
             base_url: "http://example.com/v1".into(),
             ..Default::default()
@@ -358,5 +662,70 @@ mod tests {
                 .code_string(),
             "INVALID_SETTINGS"
         );
+    }
+
+    #[tokio::test]
+    async fn discovers_and_explicitly_loads_a_native_lm_studio_model() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = thread::spawn(move || {
+            for index in 0..2 {
+                let (mut stream, _) = listener.accept().expect("request");
+                let request = read_request(&mut stream);
+                let body = if index == 0 {
+                    assert!(request.starts_with("GET /api/v1/models "));
+                    r#"{"models":[{"type":"llm","key":"qwen/test","loaded_instances":[]},{"type":"embedding","key":"embed/test","loaded_instances":[]}]}"#
+                } else {
+                    assert!(request.starts_with("POST /api/v1/models/load "));
+                    assert!(request.contains(r#""model":"qwen/test""#));
+                    r#"{"type":"llm","model_instance_id":"qwen/test","load_time_seconds":0.1,"status":"loaded"}"#
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream.write_all(response.as_bytes()).expect("response");
+            }
+        });
+        let settings = AppSettings {
+            base_url: format!("http://{address}/v1"),
+            model: "qwen/test".into(),
+            ..Default::default()
+        };
+        let loaded = LMStudioProvider
+            .load_model(&settings)
+            .await
+            .expect("loaded model");
+        assert_eq!(loaded, "qwen/test");
+        server.join().expect("server");
+    }
+
+    fn read_request(stream: &mut TcpStream) -> String {
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 2048];
+        loop {
+            let read = stream.read(&mut buffer).expect("read");
+            if read == 0 {
+                break;
+            }
+            request.extend_from_slice(&buffer[..read]);
+            let text = String::from_utf8_lossy(&request);
+            let Some(header_end) = text.find("\r\n\r\n") else {
+                continue;
+            };
+            let content_length = text[..header_end]
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .and_then(|value| value.trim().parse::<usize>().ok())
+                })
+                .unwrap_or(0);
+            if request.len() >= header_end + 4 + content_length {
+                break;
+            }
+        }
+        String::from_utf8(request).expect("utf8 request")
     }
 }

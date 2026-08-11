@@ -17,9 +17,8 @@ export function LibraryToolbar({ search, compareCount, loading, onSearch, onImpo
       <div className="toolbar-actions">
         <button className="button secondary compact" onClick={onImportFolder}><FolderIcon/>Folder</button>
         <button className="button primary compact" onClick={onImportPdf}><PlusIcon/>Import PDF</button>
-        <button className="button secondary compact" disabled={compareCount !== 2} onClick={onCompare}><CompareIcon/>Compare{compareCount ? ` (${compareCount}/2)` : ""}</button>
+        <button className="button secondary compact" disabled={compareCount < 2} onClick={onCompare}><CompareIcon/>Compare{compareCount ? ` (${compareCount})` : ""}</button>
       </div>
     </header>
   );
 }
-

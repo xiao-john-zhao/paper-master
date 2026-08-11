@@ -8,8 +8,7 @@ pub struct AnalysisRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CompareRequest {
-    pub paper_a_id: String,
-    pub paper_b_id: String,
+    pub paper_ids: Vec<String>,
     pub request_id: String,
 }
 
@@ -29,4 +28,5 @@ pub struct ConnectionResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latency_ms: Option<u128>,
     pub models: Vec<String>,
+    pub loaded_models: Vec<String>,
 }

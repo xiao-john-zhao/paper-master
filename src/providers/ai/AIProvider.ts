@@ -6,6 +6,7 @@ export interface AIProvider {
   readonly id: "lmstudio" | "mock";
   checkConnection(settings?: AppSettings): Promise<ConnectionResult>;
   getModels(settings?: AppSettings): Promise<string[]>;
+  loadModel(settings?: AppSettings): Promise<ConnectionResult>;
   analyzePaper(request: AnalysisRequest): Promise<PaperAnalysisResult>;
   generateTags(paperId: string, requestId: string): Promise<string[]>;
   comparePapers(request: CompareRequest): Promise<PaperComparisonResult>;

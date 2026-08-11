@@ -4,17 +4,17 @@ import type { AIProvider } from "./AIProvider";
 
 const MOCK_ANALYSIS: PaperAnalysisResult = {
   schema_version: "1",
-  research_problem: "How can long research documents be represented efficiently while preserving important scientific context?",
-  core_method: "A section-aware representation pipeline combines selected abstract, introduction, and conclusion content with bounded supporting passages.",
+  research_problem: "如何在保留关键科研语境的同时高效表示长篇研究文档？",
+  core_method: "采用章节感知的表示流程，将摘要、引言、结论与少量有长度上限的证据段落组合起来。",
   key_contributions: [
-    "A reproducible section-aware document representation strategy.",
-    "A bounded input construction method suitable for local language models.",
-    "An evaluation protocol separating extraction and analysis failures.",
+    "提出可复现的章节感知文档表示策略。",
+    "提出适用于本地语言模型的有界输入构建方法。",
+    "设计区分文本提取故障与模型分析故障的评估协议。",
   ],
-  main_results: "The method improves summary consistency in the reported evaluation while reducing the amount of text processed per paper.",
-  limitations: "The evaluation focuses on English, text-based PDFs and does not cover scanned documents.",
-  tags: ["document analysis", "local LLM", "scientific NLP", "summarization"],
-  ai_summary: "A section-aware, bounded pipeline for reliable local analysis of scientific papers.",
+  main_results: "报告的评估表明，该方法在减少单篇论文处理文本量的同时提高了总结一致性。",
+  limitations: "评估主要面向英文文本型 PDF，尚未覆盖扫描文档。",
+  tags: ["文档分析", "本地大模型（LLM）", "科学自然语言处理（NLP）", "自动摘要"],
+  ai_summary: "一个用于可靠本地学术论文分析的章节感知、有界上下文流程。",
 };
 
 function delay(milliseconds: number) {
@@ -26,11 +26,15 @@ export class MockAIProvider implements AIProvider {
   private cancelled = new Set<string>();
 
   async checkConnection(): Promise<ConnectionResult> {
-    return { state: "connected", message: "Mock provider is ready.", latency_ms: 8, models: ["paper-master-mock-v1"] };
+    return { state: "connected", message: "Mock 模型已就绪。", latency_ms: 8, models: ["paper-master-mock-v1"], loaded_models: ["paper-master-mock-v1"] };
   }
 
   async getModels() {
     return ["paper-master-mock-v1"];
+  }
+
+  async loadModel() {
+    return this.checkConnection();
   }
 
   async analyzePaper(request: AnalysisRequest) {
@@ -47,11 +51,11 @@ export class MockAIProvider implements AIProvider {
     await delay(500);
     if (this.cancelled.delete(request.request_id)) throw new Error("Comparison cancelled");
     return {
-      common_points: ["Both papers target reliable processing of scientific documents.", "Both emphasize reproducible local workflows."],
-      key_differences: ["Paper A focuses on section-aware input construction; Paper B focuses on evaluation and retrieval."],
-      method_comparison: "Paper A uses deterministic section selection, whereas Paper B combines retrieval scores with a learned ranker.",
-      contribution_comparison: "The first contribution is primarily a data preparation method; the second is an evaluation and retrieval framework.",
-      summary: "The papers are complementary: one improves what enters a local model, and the other improves how supporting evidence is selected.",
+      common_points: ["所选论文都关注学术文档的可靠处理。", "所选论文都强调可复现的本地工作流。"],
+      key_differences: ["不同论文分别侧重章节感知输入构建、评估方法或证据检索。"],
+      method_comparison: "各论文采用了不同但互补的章节选择、检索评分或学习排序策略。",
+      contribution_comparison: "这些贡献分别覆盖数据准备、证据检索和评估框架，可在同一工作流中组合。",
+      summary: "所选论文具有互补性：它们从输入构建、证据选择和效果评估等角度共同改进本地论文分析。",
     };
   }
 

@@ -25,7 +25,19 @@ describe("application services", () => {
     const pending = await repository.findById("demo-parser");
     const service = new ComparisonService(new MockAIProvider());
 
-    await expect(service.compare(analyzed!, pending!, "compare-test-001"))
+    await expect(service.compare([analyzed!, pending!], "compare-test-001"))
       .rejects.toMatchObject({ code: "PAPER_NOT_ANALYZED" } satisfies Partial<AppError>);
+  });
+
+  it("compares more than two analyzed papers with one request", async () => {
+    const repository = new InMemoryPaperRepository();
+    const first = await repository.findById("demo-section-aware");
+    const second = await repository.findById("demo-retrieval");
+    const third = { ...first!, id: "demo-third", title: "第三篇测试论文" };
+    const service = new ComparisonService(new MockAIProvider());
+
+    const response = await service.compare([first!, second!, third], "compare-test-003");
+    expect(response.requestId).toBe("compare-test-003");
+    expect(response.result.summary).toContain("论文");
   });
 });

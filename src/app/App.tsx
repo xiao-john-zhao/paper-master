@@ -71,8 +71,8 @@ export function App() {
     setCompareIds((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
-      else if (next.size < 2) next.add(id);
-      else notify("info", "Select only two papers", "Clear one selection before adding another paper.");
+      else if (next.size < 8) next.add(id);
+      else notify("info", "最多选择 8 篇论文", "请先取消一篇，再添加其他论文。 ");
       return next;
     });
   }
@@ -122,14 +122,14 @@ export function App() {
 
   async function compareSelected() {
     const selectedPapers = [...compareIds].map((id) => papers.find((paper) => paper.id === id)).filter((paper): paper is Paper => Boolean(paper));
-    if (selectedPapers.length !== 2) return;
+    if (selectedPapers.length < 2 || selectedPapers.length > 8) return;
     const missing = selectedPapers.find((paper) => !paper.analysis);
-    if (missing) { notify("info", "Analyze both papers first", `“${missing.title}” does not have a saved AI analysis.`); return; }
+    if (missing) { notify("info", "请先完成所选论文的分析", `《${missing.title}》还没有已保存的 AI 分析。`); return; }
     const requestId = createOperationId("compare");
     uiLogger.info("compare_papers", "Paper comparison requested", { requestId });
     setComparisonOpen(true); setComparing(true); setComparisonResult(undefined); setComparisonError(undefined); setComparisonRequestId(requestId);
     try {
-      const response = await services.comparisonService.compare(selectedPapers[0], selectedPapers[1], requestId);
+      const response = await services.comparisonService.compare(selectedPapers, requestId);
       setComparisonResult(response.result);
     } catch (error) {
       setComparisonError(normalizeAppError(error).message);
@@ -175,7 +175,7 @@ export function App() {
       {view === "diagnostics" && <DiagnosticsPage onNotify={notify}/>} 
       {comparisonOpen && (() => {
         const selectedPapers = [...compareIds].map((id) => papers.find((paper) => paper.id === id)).filter((paper): paper is Paper => Boolean(paper));
-        return selectedPapers.length === 2 ? <ComparisonDialog paperA={selectedPapers[0]} paperB={selectedPapers[1]} result={comparisonResult} loading={comparing} error={comparisonError} requestId={comparisonRequestId} onClose={() => setComparisonOpen(false)} onCancel={() => void cancelComparison()} onRetry={() => void compareSelected()}/> : null;
+        return selectedPapers.length >= 2 ? <ComparisonDialog papers={selectedPapers} result={comparisonResult} loading={comparing} error={comparisonError} requestId={comparisonRequestId} onClose={() => setComparisonOpen(false)} onCancel={() => void cancelComparison()} onRetry={() => void compareSelected()}/> : null;
       })()}
       <Toast toast={toast} onClose={() => setToast(undefined)}/>
     </div>

@@ -47,7 +47,10 @@ Interfaces return domain types or a centralized error type. Optional fields may 
 
 - PDF extraction is isolated per document. A parser error or third-party panic becomes a fallback paper record with diagnostics and cannot abort a folder import.
 - AI input is assembled from preferred sections under a configured character budget. Responses must satisfy a versioned schema before persistence.
-- LM Studio URLs must resolve to loopback. The HTTP client ignores system proxies, has bounded timeouts, and supports cancellation.
+- LM Studio URLs must resolve to loopback. The provider uses the native `/api/v1/models` catalog and `/api/v1/models/load` endpoint when available, with legacy/OpenAI-compatible discovery fallbacks. The HTTP client ignores system proxies, has bounded timeouts, and supports cancellation.
+- Generated narrative fields and comparisons must pass a Simplified-Chinese check. Tags are validated against the current paper content before persistence.
+- A bounded managed-tag vocabulary is built from other papers by usage count. It is supplied only as naming context: exact equivalent tags reuse the canonical spelling, while the vocabulary is excluded from evidence validation so unrelated library topics cannot leak into the current paper.
+- Comparison accepts 2–8 unique papers and sends only their saved structured analyses, not full extracted text.
 - SQLite migration 2 maintains an FTS5 index with triggers. Search input is sanitized and bounded, with field matching as a safe fallback.
 - UI, provider transport, JSON validation and repository-save events share one request ID. Log events omit document content and complete prompts.
 

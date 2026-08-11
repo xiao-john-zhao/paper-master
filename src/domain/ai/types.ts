@@ -29,6 +29,7 @@ export interface ConnectionResult {
   message: string;
   latency_ms?: number;
   models: string[];
+  loaded_models: string[];
 }
 
 export interface AnalysisRequest {
@@ -37,8 +38,6 @@ export interface AnalysisRequest {
 }
 
 export interface CompareRequest {
-  paper_a_id: string;
-  paper_b_id: string;
+  paper_ids: string[];
   request_id: string;
 }
-

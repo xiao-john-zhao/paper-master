@@ -15,11 +15,12 @@ The page can copy a compact diagnostic summary and open the JSONL log directory.
 ## Subsystem checks
 
 - Database: use **Test Database** in Diagnostics to run an integrity check and inspect migration/table counts.
-- LM Studio: start its local server, then use **Test Connection**. `LMSTUDIO_CONNECTION_FAILED` normally means the server is not listening; `LMSTUDIO_MODEL_NOT_FOUND` means no model is loaded/selected.
+- LM Studio: start its local server, then use **加载并测试**. The app lists downloaded LLMs through the native management API and explicitly loads the selected model. `LMSTUDIO_CONNECTION_FAILED` normally means the server is not listening; `LMSTUDIO_MODEL_NOT_FOUND` can also indicate an unavailable model file or insufficient memory/VRAM.
 - Mock AI: select **Mock (development)** in Settings to test views, persistence, parsing, and comparison without LM Studio.
 - PDF: inspect extraction character count, detected sections, warnings, and fallback status. `PDF_TEXT_EMPTY` usually indicates a scanned/image-only PDF.
 - PDF parser isolation: malformed object trees or unsupported font encodings are contained to one document and create a fallback record marked `PDF_READ_FAILED`; the rest of a folder import continues.
 - AI JSON: `AI_INVALID_JSON` records parse/retry status without recording the model reasoning or full response.
+- Chinese output/tags: English-only narrative output, tags lacking paper evidence, or fewer than three supported tags are rejected and sent through one constrained repair retry. The managed vocabulary is naming context only and is deliberately excluded from tag evidence checks.
 
 Common codes include `FILE_NOT_FOUND`, `DUPLICATE_PAPER`, `PDF_READ_FAILED`, `PDF_TEXT_EMPTY`, `DATABASE_READ_FAILED`, `DATABASE_WRITE_FAILED`, `LMSTUDIO_CONNECTION_FAILED`, `LMSTUDIO_MODEL_NOT_FOUND`, `AI_TIMEOUT`, `AI_CANCELLED`, `AI_INVALID_JSON`, and `INVALID_SETTINGS`.
 

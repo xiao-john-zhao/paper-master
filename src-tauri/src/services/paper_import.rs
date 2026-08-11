@@ -64,7 +64,8 @@ impl<'state> PaperImportService<'state> {
                     continue;
                 }
             };
-            let path_string = canonical.display().to_string();
+            let path_string = normalize_storage_path(&canonical);
+            let canonical = PathBuf::from(&path_string);
             if !seen.insert(path_string.to_lowercase()) {
                 duplicates.push(path_string);
                 continue;
@@ -246,6 +247,20 @@ fn is_pdf(path: &Path) -> bool {
         .is_some_and(|value| value.eq_ignore_ascii_case("pdf"))
 }
 
+fn normalize_storage_path(path: &Path) -> String {
+    let value = path.to_string_lossy().to_string();
+    #[cfg(windows)]
+    {
+        if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{rest}");
+        }
+        if let Some(rest) = value.strip_prefix(r"\\?\") {
+            return rest.to_string();
+        }
+    }
+    value
+}
+
 fn failure(path: &Path, code: &str, message: String) -> ImportFailure {
     ImportFailure {
         path: path.display().to_string(),
@@ -273,16 +288,18 @@ mod tests {
 
     #[test]
     fn parser_failure_uses_fallback_and_duplicate_is_skipped() {
-        let root = std::env::temp_dir().join(format!("paper-master-fallback-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("paper-master-中文路径-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("temp directory");
-        let pdf = root.join("fixture_paper.pdf");
+        let pdf = root.join("测试论文.pdf");
         std::fs::write(&pdf, b"%PDF-invalid synthetic fixture").expect("fixture");
         let database = Database::in_memory().expect("database");
         let logger = AppLogger::new(&root).expect("logger");
         let service = PaperImportService::new(&database, &logger);
         let first = service.import_paths(vec![pdf.display().to_string()], "import-test-1".into());
         assert_eq!(first.imported.len(), 1);
-        assert_eq!(first.imported[0].title, "fixture paper");
+        assert_eq!(first.imported[0].title, "测试论文");
+        assert!(first.imported[0].file_path.contains("中文路径"));
+        assert!(!first.imported[0].file_path.starts_with(r"\\?\"));
         assert_eq!(
             first.imported[0]
                 .pdf_diagnostics
@@ -372,6 +389,42 @@ mod tests {
         );
         assert_eq!(duplicate_summary.duplicates.len(), expected_pdf_count);
         assert!(duplicate_summary.imported.is_empty());
+
+        let source = summary
+            .imported
+            .iter()
+            .find(|paper| {
+                paper
+                    .pdf_diagnostics
+                    .as_ref()
+                    .is_some_and(|diagnostics| !diagnostics.fallback_used)
+            })
+            .expect("at least one extractable PDF");
+        let chinese_directory = root.join("中文文献目录");
+        std::fs::create_dir_all(&chinese_directory).expect("Chinese directory");
+        let chinese_pdf = chinese_directory.join("中文路径测试论文.pdf");
+        std::fs::copy(&source.file_path, &chinese_pdf).expect("copy PDF fixture");
+        let chinese_summary = service.import_paths(
+            vec![chinese_pdf.display().to_string()],
+            "import-chinese-path-smoke".into(),
+        );
+        assert_eq!(chinese_summary.imported.len(), 1);
+        assert!(chinese_summary.failed.is_empty());
+        assert!(chinese_summary.imported[0]
+            .file_path
+            .contains("中文文献目录"));
+        assert!(!chinese_summary.imported[0].file_path.starts_with(r"\\?\"));
+        assert!(chinese_summary.imported[0]
+            .pdf_diagnostics
+            .as_ref()
+            .is_some_and(|diagnostics| diagnostics.extracted_character_count > 0));
+        println!(
+            "CHINESE_PATH_RESULT imported=1 extracted_characters={}",
+            chinese_summary.imported[0]
+                .pdf_diagnostics
+                .as_ref()
+                .map_or(0, |diagnostics| diagnostics.extracted_character_count)
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 }

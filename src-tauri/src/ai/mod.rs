@@ -30,6 +30,7 @@ pub trait AIProvider: Send + Sync {
     fn id(&self) -> &'static str;
     async fn check_connection(&self, settings: &AppSettings) -> ConnectionResult;
     async fn get_models(&self, settings: &AppSettings) -> AppResult<Vec<String>>;
+    async fn load_model(&self, settings: &AppSettings) -> AppResult<String>;
     async fn analyze_paper(
         &self,
         input: &str,

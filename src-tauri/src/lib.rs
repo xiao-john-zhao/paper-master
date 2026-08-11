@@ -55,6 +55,7 @@ pub fn run() {
             commands::diagnostics::write_ui_log,
             commands::ai::check_ai_connection,
             commands::ai::get_ai_models,
+            commands::ai::load_ai_model,
             commands::ai::analyze_paper,
             commands::ai::generate_paper_tags,
             commands::ai::compare_papers,

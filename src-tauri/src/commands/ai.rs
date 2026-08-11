@@ -1,5 +1,8 @@
 use chrono::Utc;
-use std::time::Instant;
+use std::{
+    collections::{HashMap, HashSet},
+    time::Instant,
+};
 use tauri::State;
 
 use crate::{
@@ -14,7 +17,7 @@ use crate::{
     diagnostics::{AppLogger, LogEvent, LogLevel},
     domain::{
         ai::{AnalysisRequest, CompareRequest, ConnectionResult, PaperComparisonResult},
-        paper::PaperAnalysisResult,
+        paper::{Paper, PaperAnalysisResult, PaperQuery},
         settings::AppSettings,
     },
     error::{AppError, AppResult, ErrorCode},
@@ -53,6 +56,27 @@ pub async fn get_ai_models(
 }
 
 #[tauri::command]
+pub async fn load_ai_model(
+    database: State<'_, Database>,
+    providers: State<'_, AIProviderRegistry>,
+    settings: Option<AppSettings>,
+) -> AppResult<ConnectionResult> {
+    let settings = match settings {
+        Some(value) => value,
+        None => load_settings(database.inner())?,
+    };
+    let provider = providers.get(&settings.ai_provider)?;
+    let loaded_model = provider.load_model(&settings).await?;
+    let mut connection = provider.check_connection(&settings).await;
+    if !connection.loaded_models.contains(&loaded_model) {
+        connection.loaded_models.push(loaded_model);
+    }
+    connection.state = "connected".into();
+    connection.message = "所选模型已成功加载，LM Studio 可以开始分析。".into();
+    Ok(connection)
+}
+
+#[tauri::command]
 pub async fn analyze_paper(
     database: State<'_, Database>,
     logger: State<'_, AppLogger>,
@@ -81,7 +105,7 @@ async fn analyze_inner(
     token: tokio_util::sync::CancellationToken,
 ) -> AppResult<PaperAnalysisResult> {
     let started = Instant::now();
-    let (settings, mut paper, extracted_text) = {
+    let (settings, mut paper, extracted_text, managed_tags) = {
         let connection = database.connection()?;
         let repository = SqlitePaperRepository::new(&connection);
         let settings = SqliteSettingsStorage::new(&connection).get()?;
@@ -92,10 +116,18 @@ async fn analyze_inner(
             )
         })?;
         let text = repository.extracted_text(&request.paper_id)?;
-        (settings, paper, text)
+        let managed_tags = build_managed_tag_context(
+            &repository.list(&PaperQuery::default())?,
+            &request.paper_id,
+            settings.max_analysis_input_characters / 8,
+        );
+        (settings, paper, text, managed_tags)
     };
-    let input = PaperAnalysisInputBuilder::new(settings.max_analysis_input_characters)
-        .build(&paper, &extracted_text)?;
+    let paper_budget = settings
+        .max_analysis_input_characters
+        .saturating_sub(managed_tags.chars().count());
+    let mut input = PaperAnalysisInputBuilder::new(paper_budget).build(&paper, &extracted_text)?;
+    input.push_str(&managed_tags);
     let provider = providers.get(&settings.ai_provider)?;
     paper.analysis_status = "analyzing".to_string();
     paper.analysis_error = None;
@@ -243,7 +275,7 @@ pub async fn generate_paper_tags(
 ) -> AppResult<Vec<String>> {
     let token = requests.register(&request_id);
     let result = async {
-        let (settings, paper, text) = {
+        let (settings, paper, text, managed_tags) = {
             let connection = database.connection()?;
             let repository = SqlitePaperRepository::new(&connection);
             let settings = SqliteSettingsStorage::new(&connection).get()?;
@@ -254,10 +286,18 @@ pub async fn generate_paper_tags(
                 )
             })?;
             let text = repository.extracted_text(&paper_id)?;
-            (settings, paper, text)
+            let managed_tags = build_managed_tag_context(
+                &repository.list(&PaperQuery::default())?,
+                &paper_id,
+                settings.max_analysis_input_characters / 8,
+            );
+            (settings, paper, text, managed_tags)
         };
-        let input = PaperAnalysisInputBuilder::new(settings.max_analysis_input_characters)
-            .build(&paper, &text)?;
+        let paper_budget = settings
+            .max_analysis_input_characters
+            .saturating_sub(managed_tags.chars().count());
+        let mut input = PaperAnalysisInputBuilder::new(paper_budget).build(&paper, &text)?;
+        input.push_str(&managed_tags);
         providers
             .get(&settings.ai_provider)?
             .generate_tags(&input, &settings, token)
@@ -276,12 +316,7 @@ pub async fn compare_papers(
     requests: State<'_, AIRequestRegistry>,
     request: CompareRequest,
 ) -> AppResult<PaperComparisonResult> {
-    if request.paper_a_id == request.paper_b_id {
-        return Err(AppError::new(
-            ErrorCode::PaperNotAnalyzed,
-            "Select two different papers to compare.",
-        ));
-    }
+    validate_compare_paper_ids(&request.paper_ids)?;
     let token = requests.register(&request.request_id);
     let result = compare_inner(
         database.inner(),
@@ -303,46 +338,41 @@ async fn compare_inner(
     token: tokio_util::sync::CancellationToken,
 ) -> AppResult<PaperComparisonResult> {
     let started = Instant::now();
-    let (settings, paper_a, paper_b) = {
+    let (settings, papers) = {
         let connection = database.connection()?;
         let repository = SqlitePaperRepository::new(&connection);
         let settings = SqliteSettingsStorage::new(&connection).get()?;
-        let paper_a = repository.find_by_id(&request.paper_a_id)?.ok_or_else(|| {
-            AppError::new(
-                ErrorCode::FileNotFound,
-                "Paper A no longer exists in the library.",
-            )
-        })?;
-        let paper_b = repository.find_by_id(&request.paper_b_id)?.ok_or_else(|| {
-            AppError::new(
-                ErrorCode::FileNotFound,
-                "Paper B no longer exists in the library.",
-            )
-        })?;
-        (settings, paper_a, paper_b)
+        let mut papers = Vec::with_capacity(request.paper_ids.len());
+        for paper_id in &request.paper_ids {
+            papers.push(repository.find_by_id(paper_id)?.ok_or_else(|| {
+                AppError::new(ErrorCode::FileNotFound, "所选论文已不在本地文献库中。")
+            })?);
+        }
+        (settings, papers)
     };
-    let analysis_a = paper_a.analysis.as_ref().ok_or_else(|| {
-        AppError::new(
-            ErrorCode::PaperNotAnalyzed,
-            format!("Analyze “{}” before comparing papers.", paper_a.title),
-        )
-    })?;
-    let analysis_b = paper_b.analysis.as_ref().ok_or_else(|| {
-        AppError::new(
-            ErrorCode::PaperNotAnalyzed,
-            format!("Analyze “{}” before comparing papers.", paper_b.title),
-        )
-    })?;
+    let structured_papers = papers
+        .iter()
+        .enumerate()
+        .map(|(index, paper)| {
+            let analysis = paper.analysis.as_ref().ok_or_else(|| {
+                AppError::new(
+                    ErrorCode::PaperNotAnalyzed,
+                    format!("请先分析《{}》，再执行多篇论文对比。", paper.title),
+                )
+            })?;
+            Ok(serde_json::json!({
+                "paper_number": index + 1,
+                "title": paper.title,
+                "analysis": analysis,
+            }))
+        })
+        .collect::<AppResult<Vec<_>>>()?;
     let input = serde_json::to_string_pretty(&serde_json::json!({
-        "paper_a": { "title": paper_a.title, "analysis": analysis_a },
-        "paper_b": { "title": paper_b.title, "analysis": analysis_b }
+        "papers": structured_papers
     }))
     .map_err(|error| {
-        AppError::new(
-            ErrorCode::Internal,
-            "The stored analyses could not be prepared for comparison.",
-        )
-        .detail(error.to_string())
+        AppError::new(ErrorCode::Internal, "无法准备已保存的论文分析用于对比。")
+            .detail(error.to_string())
     })?;
     let provider = providers.get(&settings.ai_provider)?;
     record_operation(
@@ -350,13 +380,9 @@ async fn compare_inner(
         &request.request_id,
         "compare",
         "running",
-        "Paper comparison started",
+        &format!("{} 篇论文对比已开始", papers.len()),
     );
-    let mut start = LogEvent::info(
-        "ai.provider",
-        "compare",
-        "Structured paper comparison started",
-    );
+    let mut start = LogEvent::info("ai.provider", "compare", "多篇论文结构化对比已开始");
     start.request_id = Some(request.request_id.clone());
     start.provider = Some(provider.id().to_string());
     start.model = Some(if settings.model.is_empty() {
@@ -373,13 +399,9 @@ async fn compare_inner(
                 &request.request_id,
                 "compare",
                 "success",
-                "Paper comparison completed",
+                &format!("{} 篇论文对比已完成", papers.len()),
             );
-            let mut event = LogEvent::info(
-                "ai.provider",
-                "compare",
-                "Structured paper comparison completed",
-            );
+            let mut event = LogEvent::info("ai.provider", "compare", "多篇论文结构化对比已完成");
             event.request_id = Some(request.request_id.clone());
             event.provider = Some(provider.id().to_string());
             event.model = Some(if settings.model.is_empty() {
@@ -445,5 +467,137 @@ fn record_operation(
             "INSERT INTO operation_status(operation_id,kind,status,summary,updated_at) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(operation_id) DO UPDATE SET status=excluded.status,summary=excluded.summary,updated_at=excluded.updated_at",
             rusqlite::params![operation_id, kind, status, summary, Utc::now().to_rfc3339()],
         );
+    }
+}
+
+fn build_managed_tag_context(papers: &[Paper], current_paper_id: &str, budget: usize) -> String {
+    let mut groups = HashMap::<String, HashMap<String, usize>>::new();
+    for paper in papers.iter().filter(|paper| paper.id != current_paper_id) {
+        for tag in &paper.tags {
+            let tag = tag.trim();
+            if !tag.is_empty() {
+                *groups
+                    .entry(canonical_tag_key(tag))
+                    .or_default()
+                    .entry(tag.to_string())
+                    .or_default() += 1;
+            }
+        }
+    }
+    let mut tags = groups
+        .into_values()
+        .map(|variants| {
+            let total: usize = variants.values().sum();
+            let canonical = variants
+                .into_iter()
+                .max_by(|(tag_a, count_a), (tag_b, count_b)| {
+                    count_a
+                        .cmp(count_b)
+                        .then_with(|| {
+                            canonical_tag_style_score(tag_a).cmp(&canonical_tag_style_score(tag_b))
+                        })
+                        .then_with(|| tag_b.cmp(tag_a))
+                })
+                .map(|(tag, _)| tag)
+                .unwrap_or_default();
+            (canonical, total)
+        })
+        .collect::<Vec<_>>();
+    tags.sort_by(|(tag_a, count_a), (tag_b, count_b)| {
+        count_b.cmp(count_a).then_with(|| tag_a.cmp(tag_b))
+    });
+    let mut context =
+        String::from("\n\n[MANAGED TAG VOCABULARY START — NAMING ONLY, NOT PAPER EVIDENCE]\n");
+    for (tag, count) in tags.into_iter().take(100) {
+        let line = format!("- {tag} (used {count})\n");
+        if context.chars().count() + line.chars().count() > budget.max(200) {
+            break;
+        }
+        context.push_str(&line);
+    }
+    context.push_str("[MANAGED TAG VOCABULARY END]\n");
+    if context.lines().count() <= 2 {
+        String::new()
+    } else {
+        context
+    }
+}
+
+fn canonical_tag_key(tag: &str) -> String {
+    tag.chars()
+        .flat_map(char::to_lowercase)
+        .filter(|character| character.is_alphanumeric())
+        .collect()
+}
+
+fn canonical_tag_style_score(tag: &str) -> u8 {
+    u8::from(tag.contains('（') && tag.contains('）'))
+}
+
+fn validate_compare_paper_ids(paper_ids: &[String]) -> AppResult<()> {
+    let unique_ids = paper_ids.iter().collect::<HashSet<_>>();
+    if !(2..=8).contains(&unique_ids.len()) || unique_ids.len() != paper_ids.len() {
+        return Err(AppError::new(
+            ErrorCode::PaperNotAnalyzed,
+            "请选择 2–8 篇互不相同的论文进行对比。",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn managed_tag_context_excludes_current_paper_and_orders_by_frequency() {
+        let papers = vec![
+            paper("current", &["当前专用标签"]),
+            paper("one", &["集成感知与通信（ISAC）", "资源分配"]),
+            paper("two", &["集成感知与通信(ISAC)"]),
+        ];
+        let context = build_managed_tag_context(&papers, "current", 1000);
+        assert!(context.contains("集成感知与通信（ISAC） (used 2)"));
+        assert!(context.contains("资源分配 (used 1)"));
+        assert!(!context.contains("当前专用标签"));
+        assert!(context.find("used 2").unwrap() < context.find("used 1").unwrap());
+    }
+
+    #[test]
+    fn comparison_accepts_two_to_eight_unique_papers() {
+        assert!(validate_compare_paper_ids(&["a".into(), "b".into()]).is_ok());
+        assert!(validate_compare_paper_ids(
+            &(0..8)
+                .map(|index| format!("paper-{index}"))
+                .collect::<Vec<_>>()
+        )
+        .is_ok());
+        assert!(validate_compare_paper_ids(&["a".into()]).is_err());
+        assert!(validate_compare_paper_ids(&["a".into(), "a".into()]).is_err());
+        assert!(validate_compare_paper_ids(
+            &(0..9)
+                .map(|index| format!("paper-{index}"))
+                .collect::<Vec<_>>()
+        )
+        .is_err());
+    }
+
+    fn paper(id: &str, tags: &[&str]) -> Paper {
+        Paper {
+            id: id.into(),
+            file_path: format!("{id}.pdf"),
+            file_name: format!("{id}.pdf"),
+            title: id.into(),
+            authors: Vec::new(),
+            year: None,
+            abstract_text: None,
+            analysis: None,
+            tags: tags.iter().map(|tag| (*tag).to_string()).collect(),
+            analysis_status: "not_analyzed".into(),
+            analysis_error: None,
+            pdf_diagnostics: None,
+            created_at: "now".into(),
+            updated_at: "now".into(),
+        }
     }
 }

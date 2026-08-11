@@ -80,7 +80,17 @@ CREATE TRIGGER IF NOT EXISTS papers_fts_delete AFTER DELETE ON papers BEGIN
 END;
 "#;
 
-const MIGRATIONS: &[(i64, &str)] = &[(1, MIGRATION_1), (2, MIGRATION_2)];
+const MIGRATION_3: &str = r#"
+UPDATE OR IGNORE papers
+SET file_path = CASE
+    WHEN substr(file_path, 1, 8) = '\\?\UNC\' THEN '\\' || substr(file_path, 9)
+    WHEN substr(file_path, 1, 4) = '\\?\' THEN substr(file_path, 5)
+    ELSE file_path
+END
+WHERE substr(file_path, 1, 4) = '\\?\';
+"#;
+
+const MIGRATIONS: &[(i64, &str)] = &[(1, MIGRATION_1), (2, MIGRATION_2), (3, MIGRATION_3)];
 
 pub fn run_migrations(connection: &mut Connection) -> AppResult<i64> {
     connection
@@ -124,10 +134,10 @@ mod tests {
     #[test]
     fn migrations_are_idempotent() {
         let mut connection = Connection::open_in_memory().expect("in-memory database");
-        assert_eq!(run_migrations(&mut connection).expect("first migration"), 2);
+        assert_eq!(run_migrations(&mut connection).expect("first migration"), 3);
         assert_eq!(
             run_migrations(&mut connection).expect("second migration"),
-            2
+            3
         );
         let paper_table: String = connection
             .query_row(
@@ -145,5 +155,27 @@ mod tests {
             )
             .expect("fts table");
         assert_eq!(fts_table, "papers_fts");
+    }
+
+    #[test]
+    fn migration_normalizes_windows_extended_paths_without_losing_unicode() {
+        let mut connection = Connection::open_in_memory().expect("in-memory database");
+        connection.execute_batch(MIGRATION_1).expect("base schema");
+        connection
+            .execute(
+                "INSERT INTO papers(id,file_path,file_name,title,created_at,updated_at) VALUES('p1',?1,'测试.pdf','中文论文','now','now')",
+                [r"\\?\E:\中文目录\测试.pdf"],
+            )
+            .expect("fixture");
+        connection
+            .pragma_update(None, "user_version", 2)
+            .expect("version");
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 3);
+        let path: String = connection
+            .query_row("SELECT file_path FROM papers WHERE id='p1'", [], |row| {
+                row.get(0)
+            })
+            .expect("path");
+        assert_eq!(path, r"E:\中文目录\测试.pdf");
     }
 }
