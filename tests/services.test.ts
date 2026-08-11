@@ -3,9 +3,14 @@ import { MockAIProvider } from "../src/providers/ai/MockAIProvider";
 import { InMemoryPaperRepository } from "../src/repositories/InMemoryPaperRepository";
 import { AnalysisService } from "../src/services/AnalysisService";
 import { ComparisonService } from "../src/services/ComparisonService";
+import { DEFAULT_SETTINGS } from "../src/settings/InMemorySettingsStorage";
 import { AppError } from "../src/types/errors";
 
 describe("application services", () => {
+  it("uses a 600 second default LM Studio timeout", () => {
+    expect(DEFAULT_SETTINGS.request_timeout_ms).toBe(600_000);
+  });
+
   it("persists a provider analysis through the repository abstraction", async () => {
     const repository = new InMemoryPaperRepository();
     const paper = await repository.findById("demo-parser");

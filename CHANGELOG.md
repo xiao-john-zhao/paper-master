@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.1
+
+### Fixed
+
+- Raised the default LM Studio request timeout from 120 seconds to 600 seconds for long-running local paper analysis.
+- Added backend and frontend regression assertions for the 600-second default.
+
 ## v0.3.0
 
 ### Added

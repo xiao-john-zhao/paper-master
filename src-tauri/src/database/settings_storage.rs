@@ -113,6 +113,8 @@ mod tests {
     }
     #[test]
     fn accepts_loopback_lm_studio() {
-        assert!(validate(&AppSettings::default()).is_ok());
+        let settings = AppSettings::default();
+        assert_eq!(settings.request_timeout_ms, 600_000);
+        assert!(validate(&settings).is_ok());
     }
 }
