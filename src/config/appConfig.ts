@@ -1,8 +1,8 @@
 export const APP_CONFIG = {
   appName: "paper-master",
-  version: "0.2.1",
+  version: "0.3.0",
   defaultBaseUrl: "http://127.0.0.1:1234/v1",
-  defaultTemperature: 0.15,
+  defaultTemperature: 0.6,
   defaultTimeoutMs: 120_000,
   maxAnalysisInputCharacters: 24_000,
   maxOutputTokens: 8_192,

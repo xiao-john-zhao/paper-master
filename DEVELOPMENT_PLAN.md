@@ -1,9 +1,9 @@
 # Development plan
 
-- Current Version: `v0.2.1`
+- Current Version: `v0.3.0`
 - Current Phase: maintenance and bug fixing
-- Current Stable Reference: `v0.2.1`
-- Next Target Version: `v0.3.0`
+- Current Stable Commit: `c7745a7`
+- Next Target Version: `v0.3.1`
 
 The project follows a stable-core / extensible-adapter design. A phase is complete only after its build and relevant tests pass and the prior behavior remains intact.
 

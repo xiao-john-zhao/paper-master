@@ -27,6 +27,7 @@ export interface Paper {
   file_path: string;
   file_name: string;
   title: string;
+  publication_venue?: string;
   authors: string[];
   year?: number;
   abstract?: string;

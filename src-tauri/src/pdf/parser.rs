@@ -113,25 +113,216 @@ fn extract_metadata(path: &Path, text: &str, abstract_text: Option<String>) -> D
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
-        .take(20)
+        .take(40)
         .collect();
-    let title = lines
+    let (title, _, title_end_index) = detect_title(path, &lines);
+    let author_block = lines
         .iter()
-        .find(|line| plausible_title(line))
-        .map(|line| (*line).to_string())
-        .unwrap_or_else(|| fallback_title(path));
-    let title_index = lines.iter().position(|line| *line == title).unwrap_or(0);
-    let authors = lines
-        .get(title_index + 1)
+        .skip(title_end_index + 1)
+        .take(6)
+        .take_while(|line| !is_author_block_boundary(line))
         .filter(|line| plausible_author_line(line))
-        .map(|line| split_authors(line))
-        .unwrap_or_default();
+        .copied()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let authors = split_authors(&author_block);
     DocumentMetadata {
         title,
+        publication_venue: publication_venue_from_text(text),
         authors,
         year: detect_year(&text.chars().take(4_000).collect::<String>()),
         abstract_text,
     }
+}
+
+pub(crate) fn title_from_text(path: &Path, text: &str) -> String {
+    let lines = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(40)
+        .collect::<Vec<_>>();
+    detect_title(path, &lines).0
+}
+
+fn detect_title(path: &Path, lines: &[&str]) -> (String, usize, usize) {
+    let Some(start_index) = lines.iter().position(|line| {
+        plausible_title(line)
+            && !looks_like_publication_header(line)
+            && !looks_like_affiliation_or_author(line)
+    }) else {
+        return (fallback_title(path), 0, 0);
+    };
+
+    let filename_words = normalized_words(
+        &path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default(),
+    );
+    let filename_is_descriptive = filename_words.len() >= 3;
+    let mut title_parts = vec![lines[start_index]];
+    let mut end_index = start_index;
+
+    for (index, line) in lines.iter().enumerate().skip(start_index + 1).take(4) {
+        if !plausible_title(line)
+            || looks_like_publication_header(line)
+            || looks_like_affiliation_or_author(line)
+        {
+            break;
+        }
+
+        if filename_is_descriptive {
+            let current_coverage = filename_coverage(&title_parts.join(" "), &filename_words);
+            let next_coverage = filename_coverage(line, &filename_words);
+            if current_coverage >= 0.55 && next_coverage == 0.0 {
+                break;
+            }
+        }
+
+        let combined_length = title_parts.iter().map(|part| part.len()).sum::<usize>()
+            + title_parts.len()
+            + line.len();
+        if combined_length > 320 {
+            break;
+        }
+        title_parts.push(line);
+        end_index = index;
+    }
+
+    (title_parts.join(" "), start_index, end_index)
+}
+
+fn normalized_words(value: &str) -> Vec<String> {
+    Regex::new(r"[^\p{L}\p{N}]+")
+        .expect("static regex")
+        .split(&value.to_lowercase())
+        .filter(|word| word.chars().count() >= 3 && !word.chars().all(char::is_numeric))
+        .map(str::to_string)
+        .collect()
+}
+
+fn filename_coverage(value: &str, filename_words: &[String]) -> f32 {
+    if filename_words.is_empty() {
+        return 0.0;
+    }
+    let candidate_words = normalized_words(value);
+    let matches = filename_words
+        .iter()
+        .filter(|word| candidate_words.contains(word))
+        .count();
+    matches as f32 / filename_words.len() as f32
+}
+
+fn looks_like_publication_header(line: &str) -> bool {
+    let lower = line.to_lowercase();
+    lower.contains("vol.")
+        || lower.contains("volume ")
+        || lower.contains(" no. ")
+        || lower.contains("issue ")
+        || lower.contains("issn")
+        || lower.contains("copyright")
+        || lower.starts_with("arxiv:")
+        || Regex::new(r"(?i)^\s*\d{1,6}\s+(?:ieee|acm|springer|elsevier)\b")
+            .expect("static regex")
+            .is_match(line)
+}
+
+fn looks_like_affiliation_or_author(line: &str) -> bool {
+    let lower = line.to_lowercase();
+    lower.starts_with("abstract")
+        || lower.starts_with("keywords")
+        || lower.starts_with("index terms")
+        || lower.starts_with("doi")
+        || lower.contains('@')
+        || lower.contains("university")
+        || lower.contains("department of")
+        || lower.contains("school of")
+        || lower.contains("institute of")
+        || lower.contains("member, ieee")
+        || lower.contains("fellow, ieee")
+        || line.matches(',').count() >= 2
+}
+
+pub(crate) fn publication_venue_from_text(text: &str) -> Option<String> {
+    let lines = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(40)
+        .collect::<Vec<_>>();
+    detect_publication_venue(&lines)
+}
+
+fn detect_publication_venue(lines: &[&str]) -> Option<String> {
+    let venue_signal = Regex::new(
+        r"(?i)(journal|proceedings|conference|symposium|workshop|transactions|letters|review|bulletin|annals|archives|arxiv|preprint|学报|期刊|会议|研讨会|论坛|出版社|杂志)",
+    )
+    .expect("static regex");
+    let named_venue =
+        Regex::new(r"(?i)^(nature(?:\s+\w+){0,4}|science|cell(?:\s+\w+){0,3}|plos\s+\w+)\b")
+            .expect("static regex");
+    let journal_citation =
+        Regex::new(r"(?i)^.{3,120}\s+\d{1,4}\s*\((?:19|20)\d{2}\)").expect("static regex");
+
+    let mut candidates = lines.iter().take(24).filter(|line| {
+        let lower = line.to_lowercase();
+        !lower.starts_with("abstract")
+            && !lower.starts_with("keywords")
+            && !lower.starts_with("doi")
+            && !lower.starts_with("received")
+            && !lower.starts_with("accepted")
+            && !lower.contains('@')
+            && !lower.contains("university")
+            && !lower.contains("department of")
+            && !lower.contains("school of")
+            && !lower.contains("institute of")
+    });
+
+    candidates
+        .clone()
+        .find_map(|line| {
+            (looks_like_publication_header(line)
+                && (venue_signal.is_match(line)
+                    || named_venue.is_match(line)
+                    || journal_citation.is_match(line)))
+            .then(|| simplify_publication_venue(line))
+            .flatten()
+        })
+        .or_else(|| {
+            candidates.find_map(|line| {
+                (venue_signal.is_match(line)
+                    || named_venue.is_match(line)
+                    || journal_citation.is_match(line))
+                .then(|| simplify_publication_venue(line))
+                .flatten()
+            })
+        })
+}
+
+fn simplify_publication_venue(line: &str) -> Option<String> {
+    let without_page = Regex::new(r"^\s*\d{1,6}\s+")
+        .expect("static regex")
+        .replace(line, "");
+    let without_prefix = Regex::new(r"(?i)^\s*(?:published\s+in|in)\s*:?\s*")
+        .expect("static regex")
+        .replace(&without_page, "");
+    let without_details = Regex::new(
+        r"(?i)(?:\s*[,;|]\s*(?:vol(?:ume)?\.?|no\.?|issue|pp?\.?|pages?|doi)\b|\s+\d{1,4}\s*\((?:19|20)\d{2}\)).*$",
+    )
+    .expect("static regex")
+    .replace(&without_prefix, "");
+    let without_year = Regex::new(r"\b(?:19|20)\d{2}\b")
+        .expect("static regex")
+        .replace_all(&without_details, " ");
+    let normalized = Regex::new(r"\s+")
+        .expect("static regex")
+        .replace_all(&without_year, " ")
+        .trim_matches(|character: char| {
+            character.is_whitespace() || matches!(character, ',' | ';' | '|' | '-' | '.')
+        })
+        .to_string();
+    (normalized.len() >= 3 && normalized.len() <= 180).then_some(normalized)
 }
 
 fn plausible_title(line: &str) -> bool {
@@ -157,9 +348,33 @@ fn plausible_author_line(line: &str) -> bool {
         })
 }
 
+fn is_author_block_boundary(line: &str) -> bool {
+    let lower = line.to_lowercase();
+    lower.starts_with("abstract")
+        || lower.starts_with("keywords")
+        || lower.starts_with("index terms")
+        || lower.starts_with("received")
+        || lower.starts_with("accepted")
+        || lower.starts_with("doi")
+        || lower.contains('@')
+        || lower.contains("university")
+        || lower.contains("department of")
+        || lower.contains("school of")
+        || lower.contains("institute of")
+        || looks_like_publication_header(line)
+        || publication_venue_from_text(line).is_some()
+}
+
 fn split_authors(line: &str) -> Vec<String> {
-    line.replace(" and ", ",")
+    let without_roles = Regex::new(
+        r"(?i)\b(?:(?:senior|graduate student|student|life)\s+)?member\b|\bfellow\b|\bieee\b",
+    )
+    .expect("static regex")
+    .replace_all(line, "");
+    without_roles
+        .replace(" and ", ",")
         .replace(';', ",")
+        .replace(['，', '、'], ",")
         .split(',')
         .map(|value| {
             value
@@ -170,7 +385,14 @@ fn split_authors(line: &str) -> Vec<String> {
                 .trim()
                 .to_string()
         })
-        .filter(|value| value.len() >= 2 && value.len() <= 80)
+        .filter(|value| {
+            value.len() >= 2
+                && value.len() <= 80
+                && !matches!(
+                    value.to_lowercase().as_str(),
+                    "member" | "senior member" | "student member" | "fellow" | "ieee"
+                )
+        })
         .take(12)
         .collect()
 }
@@ -224,5 +446,50 @@ mod tests {
     #[test]
     fn finds_recent_year() {
         assert_eq!(detect_year("Published in 2025."), Some(2025));
+    }
+
+    #[test]
+    fn extracts_and_simplifies_journal_or_conference_venue() {
+        let journal = extract_metadata(
+            Path::new("paper.pdf"),
+            "A Reliable Paper Title\nAda Lovelace, Alan Turing\nIEEE Transactions on Knowledge and Data Engineering, Vol. 36, No. 4, 2024\nAbstract\nText",
+            None,
+        );
+        assert_eq!(
+            journal.publication_venue.as_deref(),
+            Some("IEEE Transactions on Knowledge and Data Engineering")
+        );
+
+        let conference = extract_metadata(
+            Path::new("paper.pdf"),
+            "A Reliable Paper Title\nAda Lovelace\nProceedings of the 2025 ACM SIGIR Conference\nAbstract\nText",
+            None,
+        );
+        assert_eq!(
+            conference.publication_venue.as_deref(),
+            Some("Proceedings of the ACM SIGIR Conference")
+        );
+    }
+
+    #[test]
+    fn extracts_multiline_title_instead_of_running_journal_header() {
+        let metadata = extract_metadata(
+            Path::new("Fair Integrated Sensing and Communication for Multi-UAV-Enabled Internet of Things Joint 3-D Trajectory and Resource Optimization.pdf"),
+            "29546 IEEE INTERNET OF THINGS JOURNAL, VOL. 11, NO. 18, 15 SEPTEMBER 2024\nFair Integrated Sensing and Communication for\nMulti-UAV-Enabled Internet of Things: Joint 3-D\nTrajectory and Resource Optimization\nXin Liu, Senior Member, IEEE, Yuemin Liu, Zechen Liu, and Tariq S. Durrani\nAbstract—Unmanned aerial vehicles are studied.",
+            None,
+        );
+
+        assert_eq!(
+            metadata.title,
+            "Fair Integrated Sensing and Communication for Multi-UAV-Enabled Internet of Things: Joint 3-D Trajectory and Resource Optimization"
+        );
+        assert_eq!(
+            metadata.publication_venue.as_deref(),
+            Some("IEEE INTERNET OF THINGS JOURNAL")
+        );
+        assert_eq!(
+            metadata.authors,
+            vec!["Xin Liu", "Yuemin Liu", "Zechen Liu", "Tariq S. Durrani"]
+        );
     }
 }

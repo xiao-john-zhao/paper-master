@@ -1,6 +1,10 @@
 use rusqlite::Connection;
 
-use crate::error::{AppError, AppResult, ErrorCode};
+use crate::{
+    error::{AppError, AppResult, ErrorCode},
+    pdf::parser::{publication_venue_from_text, title_from_text},
+};
+use std::path::Path;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE IF NOT EXISTS papers (
@@ -135,11 +139,16 @@ CREATE TRIGGER papers_fts_delete AFTER DELETE ON papers BEGIN
 END;
 "#;
 
+const MIGRATION_5: &str = r#"
+ALTER TABLE papers ADD COLUMN publication_venue TEXT;
+"#;
+
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, MIGRATION_1),
     (2, MIGRATION_2),
     (3, MIGRATION_3),
     (4, MIGRATION_4),
+    (5, MIGRATION_5),
 ];
 
 pub fn run_migrations(connection: &mut Connection) -> AppResult<i64> {
@@ -158,6 +167,11 @@ pub fn run_migrations(connection: &mut Connection) -> AppResult<i64> {
         transaction
             .execute_batch(sql)
             .map_err(|error| migration_error(&format!("Migration {version} failed"), error))?;
+        if *version == 5 {
+            backfill_publication_metadata(&transaction).map_err(|error| {
+                migration_error("Could not backfill publication metadata", error)
+            })?;
+        }
         transaction
             .pragma_update(None, "user_version", version)
             .map_err(|error| migration_error("Could not record migration version", error))?;
@@ -167,6 +181,44 @@ pub fn run_migrations(connection: &mut Connection) -> AppResult<i64> {
         applied = *version;
     }
     Ok(applied)
+}
+
+fn backfill_publication_metadata(connection: &Connection) -> rusqlite::Result<()> {
+    let candidates = {
+        let mut statement = connection.prepare(
+            "SELECT id,file_path,extracted_text,publication_venue FROM papers WHERE extracted_text IS NOT NULL AND trim(extracted_text)<>''",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows
+    };
+    for (id, file_path, text, existing_venue) in candidates {
+        let title = title_from_text(Path::new(&file_path), &text);
+        connection.execute(
+            "UPDATE papers SET title=?2 WHERE id=?1",
+            rusqlite::params![id, title],
+        )?;
+        if existing_venue
+            .as_deref()
+            .is_none_or(|venue| venue.trim().is_empty())
+        {
+            if let Some(venue) = publication_venue_from_text(&text) {
+                connection.execute(
+                    "UPDATE papers SET publication_venue=?2 WHERE id=?1",
+                    rusqlite::params![id, venue],
+                )?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn migration_error(message: &str, error: rusqlite::Error) -> AppError {
@@ -184,10 +236,10 @@ mod tests {
     #[test]
     fn migrations_are_idempotent() {
         let mut connection = Connection::open_in_memory().expect("in-memory database");
-        assert_eq!(run_migrations(&mut connection).expect("first migration"), 4);
+        assert_eq!(run_migrations(&mut connection).expect("first migration"), 5);
         assert_eq!(
             run_migrations(&mut connection).expect("second migration"),
-            4
+            5
         );
         let paper_table: String = connection
             .query_row(
@@ -220,7 +272,7 @@ mod tests {
         connection
             .pragma_update(None, "user_version", 2)
             .expect("version");
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 4);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 5);
         let path: String = connection
             .query_row("SELECT file_path FROM papers WHERE id='p1'", [], |row| {
                 row.get(0)
@@ -243,7 +295,7 @@ mod tests {
             .pragma_update(None, "user_version", 3)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 4);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 5);
         let modules: (String, Option<String>, String) = connection
             .query_row(
                 "SELECT analysis_schema_version,research_scenario,key_innovations_json FROM papers WHERE id='p1'",
@@ -252,5 +304,78 @@ mod tests {
             )
             .expect("v2 columns");
         assert_eq!(modules, ("1".into(), None, "[]".into()));
+    }
+
+    #[test]
+    fn migration_adds_optional_publication_venue_without_losing_papers() {
+        let mut connection = Connection::open_in_memory().expect("in-memory database");
+        connection.execute_batch(MIGRATION_1).expect("base schema");
+        connection
+            .execute(
+                "INSERT INTO papers(id,file_path,file_name,title,created_at,updated_at) VALUES('p1','paper.pdf','paper.pdf','Legacy paper','now','now')",
+                [],
+            )
+            .expect("fixture");
+        connection
+            .pragma_update(None, "user_version", 4)
+            .expect("version");
+
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 5);
+        let venue: Option<String> = connection
+            .query_row(
+                "SELECT publication_venue FROM papers WHERE id='p1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("venue column");
+        assert_eq!(venue, None);
+    }
+
+    #[test]
+    fn migration_backfills_publication_venue_from_existing_text() {
+        let mut connection = Connection::open_in_memory().expect("in-memory database");
+        connection.execute_batch(MIGRATION_1).expect("base schema");
+        connection
+            .execute(
+                "INSERT INTO papers(id,file_path,file_name,title,extracted_text,created_at,updated_at) VALUES('p1','paper.pdf','paper.pdf','Reliable Systems',?1,'now','now')",
+                ["Reliable Systems\nAda Lovelace\nJournal of Local Research, Vol. 12, No. 2, 2025\nAbstract\nEvidence"],
+            )
+            .expect("fixture");
+        connection
+            .pragma_update(None, "user_version", 4)
+            .expect("version");
+
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 5);
+        let venue: Option<String> = connection
+            .query_row(
+                "SELECT publication_venue FROM papers WHERE id='p1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("venue");
+        assert_eq!(venue.as_deref(), Some("Journal of Local Research"));
+    }
+
+    #[test]
+    fn migration_replaces_legacy_header_title_with_detected_paper_title() {
+        let mut connection = Connection::open_in_memory().expect("in-memory database");
+        connection.execute_batch(MIGRATION_1).expect("base schema");
+        connection
+            .execute(
+                "INSERT INTO papers(id,file_path,file_name,title,extracted_text,created_at,updated_at) VALUES('p1','Reliable Paper Title.pdf','Reliable Paper Title.pdf','123 IEEE JOURNAL, VOL. 1',?1,'now','now')",
+                ["123 IEEE JOURNAL, VOL. 1, 2025\nReliable Paper Title\nAda Lovelace, Member, IEEE, Alan Turing\nAbstract\nEvidence"],
+            )
+            .expect("fixture");
+        connection
+            .pragma_update(None, "user_version", 4)
+            .expect("version");
+
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 5);
+        let title: String = connection
+            .query_row("SELECT title FROM papers WHERE id='p1'", [], |row| {
+                row.get(0)
+            })
+            .expect("title");
+        assert_eq!(title, "Reliable Paper Title");
     }
 }

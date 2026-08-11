@@ -4,7 +4,7 @@
 
 ## v0.2 Demo
 
-Version `0.2.0` is a runnable Windows demo with:
+Version `0.3.0` is a runnable Windows demo with:
 
 - recursive PDF/folder import, duplicate detection, resilient text extraction, metadata fallbacks and per-file diagnostics;
 - a durable SQLite library with migrations, CRUD, FTS5 keyword search, filters and tags;
@@ -34,7 +34,7 @@ pnpm tauri build
 ```
 
 The Windows installer is written to `src-tauri/target/release/bundle/nsis/`.
-The final standalone executable is also copied to `application/paper-master-v0.2.0.exe` for convenient access.
+The final standalone executable is also copied to `application/paper-master-v0.3.0.exe` for convenient access.
 
 ## LM Studio setup
 

@@ -90,11 +90,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .compare-check span { display: block; width: 15px; height: 15px; border: 1px solid #c0c8d3; border-radius: 3px; background: #fff; }
 .compare-check input:checked + span { border-color: var(--blue); background: var(--blue); box-shadow: inset 0 0 0 3px #fff; }
 .paper-row-body { min-width: 0; }
-.paper-row h3 { margin: 0 0 6px; color: #1b2637; font-size: 13.5px; font-weight: 650; line-height: 1.36; letter-spacing: -.006em; }
-.paper-byline { display: flex; align-items: center; gap: 6px; color: #6f7b8d; font-size: 11.5px; }
-.paper-byline i { width: 3px; height: 3px; border-radius: 50%; background: #aeb5bf; }
-.paper-filename { display: flex; align-items: center; gap: 5px; margin-top: 8px; overflow: hidden; color: #919aa7; font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
-.paper-filename svg { width: 13px; height: 13px; flex: none; }
+.paper-row h3 { margin: 0; overflow: hidden; color: #1b2637; font-size: 13.5px; font-weight: 650; line-height: 1.36; letter-spacing: -.006em; text-overflow: ellipsis; white-space: nowrap; }
+.paper-venue { margin-top: 7px; overflow: hidden; color: #52637d; font-size: 10.8px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+.paper-byline { margin-top: 5px; overflow: hidden; color: #798496; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .row-tags { min-height: 21px; display: flex; gap: 5px; margin-top: 8px; overflow: hidden; }
 .row-tags span, .detail-tags span { padding: 3px 7px; border: 1px solid #d9e1ef; border-radius: 4px; background: #f6f8fc; color: #536781; font-size: 10px; white-space: nowrap; }
 .paper-row-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }

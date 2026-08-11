@@ -88,9 +88,18 @@ impl<'state> PaperImportService<'state> {
             let paper_id = Uuid::new_v4().to_string();
             let now = Utc::now().to_rfc3339();
             let parsed = self.parser.parse(&canonical);
-            let (title, authors, year, abstract_text, extracted_text, diagnostics) = match parsed {
+            let (
+                title,
+                publication_venue,
+                authors,
+                year,
+                abstract_text,
+                extracted_text,
+                diagnostics,
+            ) = match parsed {
                 Ok(document) => (
                     document.metadata.title,
+                    document.metadata.publication_venue,
                     document.metadata.authors,
                     document.metadata.year,
                     document.metadata.abstract_text,
@@ -108,6 +117,7 @@ impl<'state> PaperImportService<'state> {
                     self.logger.log(event);
                     (
                         fallback_title(&canonical),
+                        None,
                         Vec::new(),
                         None,
                         None,
@@ -132,6 +142,7 @@ impl<'state> PaperImportService<'state> {
                     .unwrap_or("paper.pdf")
                     .to_string(),
                 title,
+                publication_venue,
                 authors,
                 year,
                 abstract_text,

@@ -30,10 +30,10 @@ export function PaperList({ papers, selectedId, compareIds, loading, onSelect, o
             <input type="checkbox" checked={compareIds.has(paper.id)} onChange={() => onToggleCompare(paper.id)}/><span/>
           </label>
           <div className="paper-row-body">
-            <h3>{paper.title}</h3>
-            <div className="paper-byline"><span>{formatAuthors(paper.authors)}</span>{paper.year && <><i/> <span>{paper.year}</span></>}</div>
-            <div className="paper-filename"><FileIcon/>{paper.file_name}</div>
-            <div className="row-tags">{paper.tags.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}</div>
+            <h3 title={paper.title}>{paper.title}</h3>
+            <div className="paper-venue" title={paper.publication_venue}>{paper.publication_venue?.trim() || "刊出主体未识别"}</div>
+            <div className="paper-byline" title={formatAuthors(paper.authors)}>{paper.authors.length ? formatAuthors(paper.authors) : "作者信息未识别"}</div>
+            {paper.analysis_status === "analyzed" && paper.tags.length > 0 && <div className="row-tags">{paper.tags.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}</div>}
             <div className="paper-row-footer"><Status paper={paper}/><time>{formatDate(paper.created_at)}</time></div>
           </div>
         </article>
@@ -41,4 +41,3 @@ export function PaperList({ papers, selectedId, compareIds, loading, onSelect, o
     </div>
   );
 }
-

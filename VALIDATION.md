@@ -1,3 +1,28 @@
+# v0.3.0 validation
+
+Validated on Windows against the left-library-preview changes and the production Tauri release build.
+
+## Preview and metadata checks
+
+- The left preview renders paper title, publication venue, and authors as its first three rows; file name and year are no longer used in the compact header.
+- Keyword tags appear only for papers whose AI analysis status is `analyzed`.
+- In-app browser verification covered both analyzed and not-yet-analyzed rows, including the presence/absence of tags.
+- A real IEEE paper from the local `paper` corpus was used to reproduce its first-page running journal header and multiline title. Regression tests confirm the parser returns the joined paper title, the simplified journal name, and author names without IEEE membership labels.
+- Database migration 5 preserves existing papers and backfills publication venue and corrected titles from locally stored extracted text.
+
+## Automated checks
+
+- Frontend: 10 tests passed; TypeScript/Vite production build passed.
+- Scoped Rust metadata, migration, repository, and search tests passed.
+- Tauri release compilation completed successfully for `paper-master` v0.3.0.
+- The full Rust suite currently has 5 failures in pre-existing structured-output/prompt assertions outside this layout and metadata change; those unrelated modules were not modified for this fix.
+
+## Release artifact
+
+- `application/paper-master-v0.3.0.exe`
+
+---
+
 # v0.2 validation
 
 Validated on Windows with the production Tauri build.
