@@ -75,7 +75,12 @@ export function App() {
       const paths = Array.isArray(selection) ? selection : [selection];
       const result = await services.paperService.importPaths(paths);
       await loadPapers();
-      notify("success", `${result.imported.length} paper${result.imported.length === 1 ? "" : "s"} imported`, result.duplicates.length ? `${result.duplicates.length} duplicate path${result.duplicates.length === 1 ? "" : "s"} skipped.` : undefined);
+      const notes = [
+        result.duplicates.length ? `${result.duplicates.length} duplicate path${result.duplicates.length === 1 ? "" : "s"} skipped.` : "",
+        result.failed.length ? `${result.failed.length} file${result.failed.length === 1 ? "" : "s"} could not be imported.` : "",
+      ].filter(Boolean).join(" ");
+      if (!result.imported.length && result.failed.length) notify("error", "No papers were imported", result.failed[0].message);
+      else notify(result.failed.length ? "info" : "success", `${result.imported.length} paper${result.imported.length === 1 ? "" : "s"} imported`, notes || undefined);
     } catch (error) { const appError = normalizeAppError(error); notify("error", "Import failed", appError.message); }
   }
 

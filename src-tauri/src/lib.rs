@@ -4,6 +4,8 @@ mod database;
 mod diagnostics;
 mod domain;
 mod error;
+mod pdf;
+mod services;
 
 use tauri::Manager;
 
@@ -40,6 +42,7 @@ pub fn run() {
             commands::paper::update_paper,
             commands::paper::delete_paper,
             commands::paper::paper_exists_by_path,
+            commands::import::import_papers,
             commands::settings::get_settings,
             commands::settings::save_settings,
             commands::database::test_database,

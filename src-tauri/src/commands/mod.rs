@@ -27,5 +27,6 @@ pub fn get_app_info(paths: State<'_, AppPaths>, logger: State<'_, AppLogger>) ->
     }
 }
 pub mod database;
+pub mod import;
 pub mod paper;
 pub mod settings;
