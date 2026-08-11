@@ -101,6 +101,7 @@ mod tests {
             file_path: "x.pdf".into(),
             file_name: "x.pdf".into(),
             title: "Bounded Local Analysis".into(),
+            publication_venue: None,
             authors: vec![],
             year: None,
             abstract_text: Some("Stored abstract".into()),

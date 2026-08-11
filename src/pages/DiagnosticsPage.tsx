@@ -4,7 +4,7 @@ import type { DiagnosticSnapshot } from "../diagnostics/types";
 import { ExternalIcon } from "../components/Icons";
 
 const browserSnapshot: DiagnosticSnapshot = {
-  application_version: "0.2.0", environment: "Browser preview", database_path: "Not available in browser preview", database_status: "Preview data", migration_version: 0,
+  application_version: "0.3.0", environment: "Browser preview", database_path: "Not available in browser preview", database_status: "Preview data", migration_version: 0,
   lm_studio_base_url: "http://127.0.0.1:1234/v1", lm_studio_status: "disconnected", current_model: "paper-master-mock-v1", paper_count: 4, analyzed_paper_count: 2,
   last_ai_request_status: "Mock analysis succeeded", last_import_status: "No import in this session", recent_errors: [], log_file_location: "Available in Tauri development mode",
 };

@@ -715,6 +715,7 @@ mod tests {
             file_path: format!("{id}.pdf"),
             file_name: format!("{id}.pdf"),
             title: id.into(),
+            publication_venue: None,
             authors: Vec::new(),
             year: None,
             abstract_text: None,

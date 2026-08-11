@@ -39,6 +39,8 @@ pub struct Paper {
     pub file_path: String,
     pub file_name: String,
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publication_venue: Option<String>,
     pub authors: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub year: Option<i32>,

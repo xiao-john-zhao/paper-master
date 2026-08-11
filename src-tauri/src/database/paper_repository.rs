@@ -82,7 +82,7 @@ impl PaperRepository for SqlitePaperRepository<'_> {
     fn create(&self, paper: &Paper, extracted_text: &str) -> AppResult<Paper> {
         let analysis = paper.analysis.as_ref();
         self.connection.execute(
-            "INSERT INTO papers (id,file_path,file_name,title,authors_json,year,abstract_text,extracted_text,ai_summary,research_problem,core_method,key_contributions_json,main_results,limitations,tags_json,ai_analyzed,analysis_status,analysis_error,pdf_diagnostics_json,created_at,updated_at,analysis_schema_version,research_scenario,key_innovations_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24)",
+            "INSERT INTO papers (id,file_path,file_name,title,authors_json,year,abstract_text,extracted_text,ai_summary,research_problem,core_method,key_contributions_json,main_results,limitations,tags_json,ai_analyzed,analysis_status,analysis_error,pdf_diagnostics_json,created_at,updated_at,analysis_schema_version,research_scenario,key_innovations_json,publication_venue) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)",
             params![
                 paper.id, paper.file_path, paper.file_name, paper.title, json(&paper.authors)?, paper.year, paper.abstract_text,
                 extracted_text, analysis.map(|value| value.ai_summary.as_str()), analysis.map(|value| value.research_problem.as_str()),
@@ -91,6 +91,7 @@ impl PaperRepository for SqlitePaperRepository<'_> {
                 i64::from(paper.analysis.is_some()), paper.analysis_status, paper.analysis_error, optional_json(paper.pdf_diagnostics.as_ref())?, paper.created_at, paper.updated_at,
                 analysis.map(|value| value.schema_version.as_str()).unwrap_or("2"), analysis.map(|value| value.research_scenario.as_str()),
                 json(&analysis.map(|value| &value.key_innovations).cloned().unwrap_or_default())?,
+                paper.publication_venue,
             ],
         ).map_err(|error| {
             if matches!(&error, rusqlite::Error::SqliteFailure(inner, _) if inner.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE) {
@@ -103,13 +104,13 @@ impl PaperRepository for SqlitePaperRepository<'_> {
     fn update(&self, paper: &Paper) -> AppResult<Paper> {
         let analysis = paper.analysis.as_ref();
         let changed = self.connection.execute(
-            "UPDATE papers SET file_path=?2,file_name=?3,title=?4,authors_json=?5,year=?6,abstract_text=?7,ai_summary=?8,research_problem=?9,core_method=?10,key_contributions_json=?11,main_results=?12,limitations=?13,tags_json=?14,ai_analyzed=?15,analysis_status=?16,analysis_error=?17,pdf_diagnostics_json=?18,updated_at=?19,analysis_schema_version=?20,research_scenario=?21,key_innovations_json=?22 WHERE id=?1",
+            "UPDATE papers SET file_path=?2,file_name=?3,title=?4,authors_json=?5,year=?6,abstract_text=?7,ai_summary=?8,research_problem=?9,core_method=?10,key_contributions_json=?11,main_results=?12,limitations=?13,tags_json=?14,ai_analyzed=?15,analysis_status=?16,analysis_error=?17,pdf_diagnostics_json=?18,updated_at=?19,analysis_schema_version=?20,research_scenario=?21,key_innovations_json=?22,publication_venue=?23 WHERE id=?1",
             params![paper.id,paper.file_path,paper.file_name,paper.title,json(&paper.authors)?,paper.year,paper.abstract_text,
                 analysis.map(|value| value.ai_summary.as_str()),analysis.map(|value| value.research_problem.as_str()),analysis.map(|value| value.core_method.as_str()),
                 json(&analysis.map(|value| &value.key_contributions).cloned().unwrap_or_default())?,analysis.map(|value| value.main_results.as_str()),analysis.map(|value| value.limitations.as_str()),
                 json(&paper.tags)?,i64::from(paper.analysis.is_some()),paper.analysis_status,paper.analysis_error,optional_json(paper.pdf_diagnostics.as_ref())?,paper.updated_at,
                 analysis.map(|value| value.schema_version.as_str()).unwrap_or("2"),analysis.map(|value| value.research_scenario.as_str()),
-                json(&analysis.map(|value| &value.key_innovations).cloned().unwrap_or_default())?],
+                json(&analysis.map(|value| &value.key_innovations).cloned().unwrap_or_default())?,paper.publication_venue],
         ).map_err(|error| write_error("Could not update paper", error))?;
         if changed == 0 {
             return Err(AppError::new(
@@ -202,7 +203,7 @@ fn fts_expression(query: &str) -> String {
         .join(" AND ")
 }
 
-const PAPER_SELECT: &str = "SELECT id,file_path,file_name,title,authors_json,year,abstract_text,ai_summary,research_problem,core_method,key_contributions_json,main_results,limitations,tags_json,ai_analyzed,analysis_status,analysis_error,pdf_diagnostics_json,created_at,updated_at,analysis_schema_version,research_scenario,key_innovations_json FROM papers";
+const PAPER_SELECT: &str = "SELECT id,file_path,file_name,title,authors_json,year,abstract_text,ai_summary,research_problem,core_method,key_contributions_json,main_results,limitations,tags_json,ai_analyzed,analysis_status,analysis_error,pdf_diagnostics_json,created_at,updated_at,analysis_schema_version,research_scenario,key_innovations_json,publication_venue FROM papers";
 
 fn map_paper(row: &Row<'_>) -> rusqlite::Result<Paper> {
     let authors: Vec<String> = parse_json(row.get::<_, String>(4)?, 4)?;
@@ -235,6 +236,7 @@ fn map_paper(row: &Row<'_>) -> rusqlite::Result<Paper> {
         file_path: row.get(1)?,
         file_name: row.get(2)?,
         title: row.get(3)?,
+        publication_venue: row.get(23)?,
         authors,
         year: row.get(5)?,
         abstract_text: row.get(6)?,
@@ -285,6 +287,7 @@ fn matches_query(paper: &Paper, query: &PaperQuery) -> bool {
     let analysis = paper.analysis.as_ref();
     [
         paper.title.as_str(),
+        paper.publication_venue.as_deref().unwrap_or_default(),
         &paper.authors.join(" "),
         paper.abstract_value().unwrap_or_default(),
         analysis
@@ -354,6 +357,7 @@ mod tests {
             file_path: "C:\\papers\\one.pdf".into(),
             file_name: "one.pdf".into(),
             title: "Local Models for Science".into(),
+            publication_venue: Some("Journal of Local AI".into()),
             authors: vec!["Ada Lovelace".into()],
             year: Some(2025),
             abstract_text: Some("Local scientific analysis".into()),

@@ -10,6 +10,7 @@ const DEMO_PAPERS: Paper[] = [
     file_path: "C:\\Research\\section-aware-scientific-analysis.pdf",
     file_name: "section-aware-scientific-analysis.pdf",
     title: "Section-Aware Context Selection for Local Scientific Document Analysis",
+    publication_venue: "ACM Transactions on Intelligent Systems and Technology",
     authors: ["Maya Chen", "Elias Novak", "Priya Raman"],
     year: 2025,
     abstract: "We study bounded context construction for reliable analysis of scientific documents with local language models.",
@@ -50,6 +51,7 @@ const DEMO_PAPERS: Paper[] = [
     file_path: "C:\\Research\\evidence-retrieval.pdf",
     file_name: "evidence-retrieval.pdf",
     title: "Evidence-Grounded Retrieval for Reproducible Literature Review",
+    publication_venue: "ACM SIGIR Conference",
     authors: ["Sofia Alvarez", "Daniel Brooks"],
     year: 2024,
     abstract: "A retrieval framework for evidence-grounded review of local scientific collections.",
@@ -75,6 +77,7 @@ const DEMO_PAPERS: Paper[] = [
     file_path: "C:\\Research\\robust-pdf-parsing.pdf",
     file_name: "robust-pdf-parsing.pdf",
     title: "Robust Section Detection in Heterogeneous Scientific PDFs",
+    publication_venue: "International Conference on Document Analysis and Recognition",
     authors: ["Noah Williams", "Lin Wei", "Amara Okafor"],
     year: 2023,
     abstract: "Rule-based and statistical section detection for heterogeneous scientific PDFs.",
@@ -88,6 +91,7 @@ const DEMO_PAPERS: Paper[] = [
     file_path: "C:\\Research\\private-ai-tools-survey.pdf",
     file_name: "private-ai-tools-survey.pdf",
     title: "Private-by-Design AI Tools for Individual Researchers: A Survey",
+    publication_venue: "Journal of Open Research Software",
     authors: ["Camille Martin"],
     year: 2025,
     tags: ["privacy", "research tools"],
@@ -103,7 +107,7 @@ function matches(paper: Paper, query: PaperQuery) {
   if (query.tag && !paper.tags.some((tag) => tag.toLowerCase() === query.tag!.toLowerCase())) return false;
   const needle = query.text?.trim().toLowerCase();
   if (!needle) return true;
-  return [paper.title, paper.authors.join(" "), paper.abstract ?? "", paper.analysis?.ai_summary ?? "", paper.analysis?.research_problem ?? "", paper.analysis?.research_scenario ?? "", paper.analysis?.core_method ?? "", paper.analysis?.key_innovations?.join(" ") ?? "", paper.analysis?.key_contributions.join(" ") ?? "", paper.tags.join(" ")]
+  return [paper.title, paper.publication_venue ?? "", paper.authors.join(" "), paper.abstract ?? "", paper.analysis?.ai_summary ?? "", paper.analysis?.research_problem ?? "", paper.analysis?.research_scenario ?? "", paper.analysis?.core_method ?? "", paper.analysis?.key_innovations?.join(" ") ?? "", paper.analysis?.key_contributions.join(" ") ?? "", paper.tags.join(" ")]
     .join(" ").toLowerCase().includes(needle);
 }
 

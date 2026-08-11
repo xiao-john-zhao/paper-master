@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.3.1
+
+### Fixed
+
+- Raised the default LM Studio request timeout from 120 seconds to 600 seconds for long-running local paper analysis.
+- Added backend and frontend regression assertions for the 600-second default.
+
+## v0.3.0
+
+### Added
+
+- Added persisted publication venue metadata with best-effort extraction of journal, conference, workshop, proceedings, or preprint names from imported PDFs.
+- Added a backward-compatible database migration that backfills venue metadata from existing locally stored PDF text when possible and preserves an explicit fallback when no venue can be identified.
+
+### Changed
+
+- Reordered the left paper preview to show title, publication venue, and authors as its first three rows.
+- Removed the PDF file name and publication year from the compact preview.
+- Displayed keyword tags in the preview only after AI analysis has completed.
+- Improved PDF metadata detection to skip running journal/page headers, join multiline paper titles, and remove IEEE membership labels from author names.
+- Backfilled legacy title fields from existing extracted text so previously imported papers no longer keep a filename or journal header as their display title when the real title can be detected.
+
 ## v0.2.1
 
 ### Fixed

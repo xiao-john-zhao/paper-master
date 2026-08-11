@@ -10,6 +10,7 @@ use crate::{domain::paper::PdfDiagnostics, error::AppResult};
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct DocumentMetadata {
     pub title: String,
+    pub publication_venue: Option<String>,
     pub authors: Vec<String>,
     pub year: Option<i32>,
     pub abstract_text: Option<String>,
