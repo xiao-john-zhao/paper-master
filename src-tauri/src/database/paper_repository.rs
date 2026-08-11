@@ -1,4 +1,5 @@
 use rusqlite::{params, types::Type, Connection, Row};
+use std::collections::HashSet;
 
 use crate::{
     domain::paper::{Paper, PaperAnalysisResult, PaperQuery},
@@ -60,6 +61,20 @@ impl<'connection> SqlitePaperRepository<'connection> {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|error| read_error("A stored paper record is invalid", error))?;
         Ok(papers)
+    }
+
+    fn fts_ids(&self, query: &str) -> Result<HashSet<String>, rusqlite::Error> {
+        let expression = fts_expression(query);
+        if expression.is_empty() {
+            return Ok(HashSet::new());
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT paper_id FROM papers_fts WHERE papers_fts MATCH ?1 ORDER BY rank LIMIT 500",
+        )?;
+        let ids = statement
+            .query_map([expression], |row| row.get::<_, String>(0))?
+            .collect();
+        ids
     }
 }
 
@@ -129,7 +144,31 @@ impl PaperRepository for SqlitePaperRepository<'_> {
     }
 
     fn search(&self, query: &PaperQuery) -> AppResult<Vec<Paper>> {
-        self.list(query)
+        let Some(text) = query
+            .text
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+        else {
+            return self.list(query);
+        };
+        match self.fts_ids(text) {
+            Ok(ids) => {
+                let non_text_query = PaperQuery {
+                    text: None,
+                    tag: query.tag.clone(),
+                    filter: query.filter.clone(),
+                };
+                Ok(self
+                    .all()?
+                    .into_iter()
+                    .filter(|paper| {
+                        ids.contains(&paper.id) && matches_query(paper, &non_text_query)
+                    })
+                    .collect())
+            }
+            Err(_) => self.list(query),
+        }
     }
 
     fn exists_by_path(&self, path: &str) -> AppResult<bool> {
@@ -141,6 +180,22 @@ impl PaperRepository for SqlitePaperRepository<'_> {
             )
             .map_err(|error| read_error("Could not check duplicate path", error))
     }
+}
+
+fn fts_expression(query: &str) -> String {
+    query
+        .split_whitespace()
+        .map(|token| {
+            token
+                .chars()
+                .filter(|character| character.is_alphanumeric() || matches!(character, '-' | '_'))
+                .collect::<String>()
+        })
+        .filter(|token| !token.is_empty())
+        .take(12)
+        .map(|token| format!("\"{}\"*", token.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(" AND ")
 }
 
 const PAPER_SELECT: &str = "SELECT id,file_path,file_name,title,authors_json,year,abstract_text,ai_summary,research_problem,core_method,key_contributions_json,main_results,limitations,tags_json,ai_analyzed,analysis_status,analysis_error,pdf_diagnostics_json,created_at,updated_at FROM papers";
@@ -307,7 +362,7 @@ mod tests {
         assert!(repository.exists_by_path(&value.file_path).expect("exists"));
         assert_eq!(
             repository
-                .list(&PaperQuery {
+                .search(&PaperQuery {
                     text: Some("lovelace".into()),
                     ..Default::default()
                 })
@@ -315,11 +370,24 @@ mod tests {
                 .len(),
             1
         );
+        assert!(repository
+            .search(&PaperQuery {
+                text: Some("\" OR *".into()),
+                ..Default::default()
+            })
+            .expect("safe query")
+            .is_empty());
         assert_eq!(
             repository.extracted_text(&value.id).expect("text"),
             "extracted"
         );
         repository.delete(&value.id).expect("delete");
         assert!(repository.find_by_id(&value.id).expect("find").is_none());
+    }
+
+    #[test]
+    fn fts_query_is_bounded_and_sanitized() {
+        assert_eq!(fts_expression("local LLM"), "\"local\"* AND \"LLM\"*");
+        assert_eq!(fts_expression("\" OR *"), "\"OR\"*");
     }
 }

@@ -45,7 +45,42 @@ CREATE TABLE IF NOT EXISTS operation_status (
 );
 "#;
 
-const MIGRATIONS: &[(i64, &str)] = &[(1, MIGRATION_1)];
+const MIGRATION_2: &str = r#"
+CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts USING fts5(
+    paper_id UNINDEXED,
+    title,
+    authors,
+    abstract_text,
+    ai_summary,
+    research_problem,
+    core_method,
+    key_contributions,
+    tags,
+    tokenize = 'unicode61'
+);
+
+INSERT INTO papers_fts(paper_id,title,authors,abstract_text,ai_summary,research_problem,core_method,key_contributions,tags)
+SELECT id,title,authors_json,COALESCE(abstract_text,''),COALESCE(ai_summary,''),COALESCE(research_problem,''),COALESCE(core_method,''),key_contributions_json,tags_json
+FROM papers
+WHERE id NOT IN (SELECT paper_id FROM papers_fts);
+
+CREATE TRIGGER IF NOT EXISTS papers_fts_insert AFTER INSERT ON papers BEGIN
+    INSERT INTO papers_fts(paper_id,title,authors,abstract_text,ai_summary,research_problem,core_method,key_contributions,tags)
+    VALUES(new.id,new.title,new.authors_json,COALESCE(new.abstract_text,''),COALESCE(new.ai_summary,''),COALESCE(new.research_problem,''),COALESCE(new.core_method,''),new.key_contributions_json,new.tags_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS papers_fts_update AFTER UPDATE ON papers BEGIN
+    DELETE FROM papers_fts WHERE paper_id=old.id;
+    INSERT INTO papers_fts(paper_id,title,authors,abstract_text,ai_summary,research_problem,core_method,key_contributions,tags)
+    VALUES(new.id,new.title,new.authors_json,COALESCE(new.abstract_text,''),COALESCE(new.ai_summary,''),COALESCE(new.research_problem,''),COALESCE(new.core_method,''),new.key_contributions_json,new.tags_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS papers_fts_delete AFTER DELETE ON papers BEGIN
+    DELETE FROM papers_fts WHERE paper_id=old.id;
+END;
+"#;
+
+const MIGRATIONS: &[(i64, &str)] = &[(1, MIGRATION_1), (2, MIGRATION_2)];
 
 pub fn run_migrations(connection: &mut Connection) -> AppResult<i64> {
     connection
@@ -89,10 +124,10 @@ mod tests {
     #[test]
     fn migrations_are_idempotent() {
         let mut connection = Connection::open_in_memory().expect("in-memory database");
-        assert_eq!(run_migrations(&mut connection).expect("first migration"), 1);
+        assert_eq!(run_migrations(&mut connection).expect("first migration"), 2);
         assert_eq!(
             run_migrations(&mut connection).expect("second migration"),
-            1
+            2
         );
         let paper_table: String = connection
             .query_row(
@@ -102,5 +137,13 @@ mod tests {
             )
             .expect("papers table");
         assert_eq!(paper_table, "papers");
+        let fts_table: String = connection
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE name='papers_fts'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("fts table");
+        assert_eq!(fts_table, "papers_fts");
     }
 }
