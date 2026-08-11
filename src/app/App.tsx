@@ -1,11 +1,131 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { openPath } from "@tauri-apps/plugin-opener";
+import { Sidebar, type AppView } from "../components/Sidebar";
+import { Toast, type ToastMessage } from "../components/Toast";
+import type { LibraryFilter, Paper } from "../domain/paper/Paper";
+import { LibraryToolbar } from "../features/library/LibraryToolbar";
+import { PaperList } from "../features/library/PaperList";
+import { PaperDetail } from "../features/paper-detail/PaperDetail";
+import { DiagnosticsPage } from "../pages/DiagnosticsPage";
+import { SettingsPage } from "../pages/SettingsPage";
+import { createApplicationServices } from "../services/ApplicationServices";
+import type { AppSettings } from "../settings/types";
+import { normalizeAppError } from "../types/errors";
+import { APP_CONFIG } from "../config/appConfig";
+
+const services = createApplicationServices();
+
 export function App() {
+  const [view, setView] = useState<AppView>("library");
+  const [filter, setFilter] = useState<LibraryFilter>("all");
+  const [tag, setTag] = useState<string>();
+  const [search, setSearch] = useState("");
+  const [papers, setPapers] = useState<Paper[]>([]);
+  const [selectedId, setSelectedId] = useState<string>();
+  const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [analyzingId, setAnalyzingId] = useState<string>();
+  const [toast, setToast] = useState<ToastMessage>();
+  const toastTimer = useRef<number | undefined>(undefined);
+
+  const notify = useCallback((tone: ToastMessage["tone"], title: string, message?: string) => {
+    window.clearTimeout(toastTimer.current);
+    setToast({ id: Date.now(), tone, title, message });
+    toastTimer.current = window.setTimeout(() => setToast(undefined), 4500);
+  }, []);
+
+  const loadPapers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await services.paperService.list({ text: search, tag, filter });
+      setPapers(result);
+      setSelectedId((current) => result.some((paper) => paper.id === current) ? current : result[0]?.id);
+    } catch (error) {
+      const appError = normalizeAppError(error);
+      notify("error", "Library could not be loaded", appError.message);
+    } finally { setLoading(false); }
+  }, [filter, notify, search, tag]);
+
+  useEffect(() => { const timer = window.setTimeout(() => void loadPapers(), search ? 160 : 0); return () => window.clearTimeout(timer); }, [loadPapers, search]);
+  useEffect(() => () => window.clearTimeout(toastTimer.current), []);
+
+  const selected = papers.find((paper) => paper.id === selectedId);
+  const tags = useMemo(() => {
+    const counts = new Map<string, number>();
+    papers.forEach((paper) => paper.tags.forEach((paperTag) => counts.set(paperTag, (counts.get(paperTag) ?? 0) + 1)));
+    return [...counts].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }, [papers]);
+
+  function toggleCompare(id: string) {
+    setCompareIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else if (next.size < 2) next.add(id);
+      else notify("info", "Select only two papers", "Clear one selection before adding another paper.");
+      return next;
+    });
+  }
+
+  async function importPapers(folder: boolean) {
+    if (!services.tauri) { notify("info", "Import is available in the desktop app", "Browser preview uses stable demo papers."); return; }
+    try {
+      const selection = await open(folder ? { directory: true, multiple: false } : { multiple: true, filters: [{ name: "PDF documents", extensions: ["pdf"] }] });
+      if (!selection) return;
+      const paths = Array.isArray(selection) ? selection : [selection];
+      const result = await services.paperService.importPaths(paths);
+      await loadPapers();
+      notify("success", `${result.imported.length} paper${result.imported.length === 1 ? "" : "s"} imported`, result.duplicates.length ? `${result.duplicates.length} duplicate path${result.duplicates.length === 1 ? "" : "s"} skipped.` : undefined);
+    } catch (error) { const appError = normalizeAppError(error); notify("error", "Import failed", appError.message); }
+  }
+
+  async function analyzeSelected() {
+    if (!selected) return;
+    setAnalyzingId(selected.id);
+    setPapers((items) => items.map((paper) => paper.id === selected.id ? { ...paper, analysis_status: "analyzing" } : paper));
+    try {
+      const result = await services.analysisService.analyze(selected);
+      setPapers((items) => items.map((paper) => paper.id === result.paper.id ? result.paper : paper));
+      notify("success", "Analysis complete", `Request ${result.requestId}`);
+    } catch (error) {
+      const appError = normalizeAppError(error);
+      setPapers((items) => items.map((paper) => paper.id === selected.id ? { ...paper, analysis_status: "failed", analysis_error: appError.message } : paper));
+      notify("error", "AI analysis failed", appError.message);
+    } finally { setAnalyzingId(undefined); }
+  }
+
+  async function openSelected() {
+    if (!selected) return;
+    if (!services.tauri) { notify("info", "Open PDF is available in the desktop app", selected.file_path); return; }
+    try { await openPath(selected.file_path); }
+    catch (error) { notify("error", "PDF could not be opened", normalizeAppError(error).message); }
+  }
+
+  async function deleteSelected() {
+    if (!selected || !window.confirm(`Remove “${selected.title}” from the local library?\n\nThe original PDF will not be deleted.`)) return;
+    try { await services.paperService.remove(selected.id); await loadPapers(); notify("success", "Paper removed from library"); }
+    catch (error) { notify("error", "Paper could not be removed", normalizeAppError(error).message); }
+  }
+
+  function settingsSaved(settings: AppSettings) {
+    services.analysisService.setProvider(services.providers[settings.ai_provider]);
+  }
+
   return (
-    <main className="bootstrap-shell">
-      <div className="bootstrap-mark">PM</div>
-      <h1>paper-master</h1>
-      <p>Local-first research library</p>
-      <span>Starting application services…</span>
-    </main>
+    <div className="app-shell">
+      <Sidebar view={view} filter={filter} tags={tags} activeTag={tag} developmentMode={APP_CONFIG.developmentMode || !services.tauri} onView={setView} onFilter={setFilter} onTag={setTag}/>
+      {view === "library" && <div className="library-layout">
+        <section className="library-column">
+          <LibraryToolbar search={search} compareCount={compareIds.size} loading={loading} onSearch={setSearch} onImportPdf={() => void importPapers(false)} onImportFolder={() => void importPapers(true)} onCompare={() => notify("info", "Comparison view is ready for Phase 7", "The two selected papers will be compared using stored analyses.")}/>
+          {(filter !== "all" || tag) && <div className="active-filter"><span>Showing {tag ? `tag: ${tag}` : filter === "recent" ? "recently added" : "AI analyzed"}</span><button onClick={() => { setTag(undefined); setFilter("all"); }}>Clear</button></div>}
+          <PaperList papers={papers} selectedId={selectedId} compareIds={compareIds} loading={loading} onSelect={setSelectedId} onToggleCompare={toggleCompare}/>
+          <footer className="library-count">{papers.length} paper{papers.length === 1 ? "" : "s"}</footer>
+        </section>
+        <PaperDetail paper={selected} analyzing={analyzingId === selected?.id} onAnalyze={() => void analyzeSelected()} onOpen={() => void openSelected()} onDelete={() => void deleteSelected()}/>
+      </div>}
+      {view === "settings" && <SettingsPage storage={services.settingsStorage} providers={services.providers} onSaved={settingsSaved} onNotify={notify}/>} 
+      {view === "diagnostics" && <DiagnosticsPage onNotify={notify}/>} 
+      <Toast toast={toast} onClose={() => setToast(undefined)}/>
+    </div>
   );
 }
-
