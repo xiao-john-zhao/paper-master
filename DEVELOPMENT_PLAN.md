@@ -11,8 +11,8 @@ The project follows a stable-core / extensible-adapter design. A phase is comple
 | 5 | LM Studio + Mock providers, analysis, validation, tracing | Complete |
 | 6 | Keyword and tag search | Complete |
 | 7 | Structured two-paper comparison | Complete |
-| 8 | Unit/integration tests, diagnostics and failure handling | In progress |
-| 9 | UX polish, Windows build and demo validation | Planned |
+| 8 | Unit/integration tests, diagnostics and failure handling | Complete |
+| 9 | UX polish, Windows build and demo validation | In progress |
 
 ## Definition of done
 

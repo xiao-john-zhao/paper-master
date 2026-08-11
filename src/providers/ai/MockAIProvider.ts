@@ -18,7 +18,7 @@ const MOCK_ANALYSIS: PaperAnalysisResult = {
 };
 
 function delay(milliseconds: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+  return new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
 }
 
 export class MockAIProvider implements AIProvider {
@@ -59,4 +59,3 @@ export class MockAIProvider implements AIProvider {
     this.cancelled.add(requestId);
   }
 }
-

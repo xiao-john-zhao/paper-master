@@ -124,6 +124,33 @@ async fn analyze_inner(
 
     match provider.analyze_paper(&input, &settings, token).await {
         Ok(response) => {
+            let mut transport_event = LogEvent::info(
+                if provider.id() == "lmstudio" {
+                    "ai.lmstudio"
+                } else {
+                    "ai.mock"
+                },
+                "response",
+                "AI provider response received",
+            );
+            transport_event.request_id = Some(request.request_id.clone());
+            transport_event.provider = Some(provider.id().to_string());
+            transport_event.model = Some(if settings.model.is_empty() {
+                "auto".into()
+            } else {
+                settings.model.clone()
+            });
+            transport_event.http_status = response.http_status;
+            transport_event.duration_ms = Some(started.elapsed().as_millis());
+            logger.log(transport_event);
+
+            let mut parse_event =
+                LogEvent::info("ai.parser", "validate", "Structured AI response validated");
+            parse_event.request_id = Some(request.request_id.clone());
+            parse_event.parse_success = Some(true);
+            parse_event.retry_count = Some(response.retry_count);
+            logger.log(parse_event);
+
             paper.analysis = Some(response.value.clone());
             paper.tags = response.value.tags.clone();
             paper.analysis_status = "analyzed".to_string();
@@ -132,6 +159,13 @@ async fn analyze_inner(
             let connection = database.connection()?;
             SqlitePaperRepository::new(&connection).update(&paper)?;
             drop(connection);
+            let mut save_event = LogEvent::info(
+                "paper.repository",
+                "save_analysis",
+                "Structured analysis saved",
+            );
+            save_event.request_id = Some(request.request_id.clone());
+            logger.log(save_event);
             record_operation(
                 database,
                 &request.request_id,

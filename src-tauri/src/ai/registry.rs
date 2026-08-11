@@ -38,3 +38,20 @@ impl AIRequestRegistry {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registered_request_can_be_cancelled_and_removed() {
+        let registry = AIRequestRegistry::new();
+        let token = registry.register("analysis-test-001");
+
+        assert!(registry.cancel("analysis-test-001"));
+        assert!(token.is_cancelled());
+
+        registry.remove("analysis-test-001");
+        assert!(!registry.cancel("analysis-test-001"));
+    }
+}

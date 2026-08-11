@@ -16,6 +16,7 @@ import { createOperationId } from "../services/PaperService";
 import type { AppSettings } from "../settings/types";
 import { normalizeAppError } from "../types/errors";
 import { APP_CONFIG } from "../config/appConfig";
+import { uiLogger } from "../diagnostics/uiLogger";
 
 const services = createApplicationServices();
 
@@ -82,7 +83,9 @@ export function App() {
       const selection = await open(folder ? { directory: true, multiple: false } : { multiple: true, filters: [{ name: "PDF documents", extensions: ["pdf"] }] });
       if (!selection) return;
       const paths = Array.isArray(selection) ? selection : [selection];
-      const result = await services.paperService.importPaths(paths);
+      const operationId = createOperationId("import");
+      uiLogger.info("import_papers", "PDF import requested", { requestId: operationId });
+      const result = await services.paperService.importPaths(paths, operationId);
       await loadPapers();
       const notes = [
         result.duplicates.length ? `${result.duplicates.length} duplicate path${result.duplicates.length === 1 ? "" : "s"} skipped.` : "",
@@ -96,6 +99,7 @@ export function App() {
   async function analyzeSelected() {
     if (!selected) return;
     const requestId = createOperationId("analysis");
+    uiLogger.info("analyze_paper", "AI analysis requested", { requestId });
     setAnalyzingId(selected.id);
     setActiveRequestId(requestId);
     setPapers((items) => items.map((paper) => paper.id === selected.id ? { ...paper, analysis_status: "analyzing" } : paper));
@@ -122,6 +126,7 @@ export function App() {
     const missing = selectedPapers.find((paper) => !paper.analysis);
     if (missing) { notify("info", "Analyze both papers first", `“${missing.title}” does not have a saved AI analysis.`); return; }
     const requestId = createOperationId("compare");
+    uiLogger.info("compare_papers", "Paper comparison requested", { requestId });
     setComparisonOpen(true); setComparing(true); setComparisonResult(undefined); setComparisonError(undefined); setComparisonRequestId(requestId);
     try {
       const response = await services.comparisonService.compare(selectedPapers[0], selectedPapers[1], requestId);

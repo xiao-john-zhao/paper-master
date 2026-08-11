@@ -13,8 +13,8 @@ export class PaperService {
   save(paper: Paper) { return this.repository.update(paper); }
   remove(id: string) { return this.repository.delete(id); }
 
-  importPaths(paths: string[]): Promise<ImportSummary> {
-    return this.repository.create(paths, createOperationId("import"));
+  importPaths(paths: string[], operationId = createOperationId("import")): Promise<ImportSummary> {
+    return this.repository.create(paths, operationId);
   }
 }
 
@@ -22,4 +22,3 @@ export function createOperationId(prefix: "analysis" | "compare" | "import") {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
   return `${prefix}-${stamp}-${crypto.randomUUID().slice(0, 8)}`;
 }
-

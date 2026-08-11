@@ -303,4 +303,75 @@ mod tests {
         drop(connection);
         let _ = std::fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn imports_configured_real_corpus() {
+        let Ok(corpus) = std::env::var("PAPER_MASTER_TEST_CORPUS") else {
+            return;
+        };
+        let corpus_path = PathBuf::from(&corpus);
+        let expected_pdf_count = WalkDir::new(&corpus_path)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().is_file() && is_pdf(entry.path()))
+            .count();
+        assert!(expected_pdf_count > 0, "configured corpus contains no PDFs");
+
+        let root = std::env::temp_dir().join(format!("paper-master-corpus-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("temp directory");
+        let database = Database::in_memory().expect("database");
+        let logger = AppLogger::new(&root).expect("logger");
+        let service = PaperImportService::new(&database, &logger);
+        let summary = service.import_paths(vec![corpus], "import-corpus-smoke".into());
+        let fallback_count = summary
+            .imported
+            .iter()
+            .filter(|paper| {
+                paper
+                    .pdf_diagnostics
+                    .as_ref()
+                    .is_some_and(|diagnostics| diagnostics.fallback_used)
+            })
+            .count();
+
+        println!(
+            "CORPUS_IMPORT_RESULT expected={} imported={} duplicates={} failed={} fallbacks={}",
+            expected_pdf_count,
+            summary.imported.len(),
+            summary.duplicates.len(),
+            summary.failed.len(),
+            fallback_count
+        );
+        assert_eq!(summary.imported.len(), expected_pdf_count);
+        assert!(summary.failed.is_empty());
+        assert!(summary
+            .imported
+            .iter()
+            .all(|paper| paper.pdf_diagnostics.is_some()));
+
+        let connection = database.connection().expect("connection");
+        let repository = SqlitePaperRepository::new(&connection);
+        assert_eq!(repository.counts().expect("counts").0, expected_pdf_count);
+        let search_result = repository
+            .search(&PaperQuery {
+                text: Some("communication".into()),
+                tag: None,
+                filter: None,
+            })
+            .expect("search");
+        println!(
+            "CORPUS_SEARCH_RESULT query=communication matches={}",
+            search_result.len()
+        );
+        assert!(!search_result.is_empty());
+        drop(connection);
+
+        let duplicate_summary = service.import_paths(
+            vec![corpus_path.display().to_string()],
+            "import-corpus-duplicate-smoke".into(),
+        );
+        assert_eq!(duplicate_summary.duplicates.len(), expected_pdf_count);
+        assert!(duplicate_summary.imported.is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

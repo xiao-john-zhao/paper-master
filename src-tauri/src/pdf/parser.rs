@@ -1,5 +1,5 @@
 use regex::Regex;
-use std::path::Path;
+use std::{panic::AssertUnwindSafe, path::Path};
 
 use crate::{
     domain::paper::PdfDiagnostics,
@@ -26,7 +26,17 @@ impl DocumentParser for PdfDocumentParser {
             )
             .detail(path.display().to_string()));
         }
-        let pages = pdf_extract::extract_text_by_pages(path).map_err(|error| {
+        let pages = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            pdf_extract::extract_text_by_pages(path)
+        }))
+        .map_err(|_| {
+            AppError::new(
+                ErrorCode::PdfReadFailed,
+                "The PDF parser could not safely read this document; a fallback record will be used.",
+            )
+            .detail("A third-party PDF parser panic was isolated at the document boundary.")
+        })?
+        .map_err(|error| {
             AppError::new(
                 ErrorCode::PdfReadFailed,
                 "Text could not be extracted from this PDF.",

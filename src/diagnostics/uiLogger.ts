@@ -13,6 +13,11 @@ function write(level: Level, operation: string, message: string, context: LogCon
     const method = level === "ERROR" ? console.error : level === "WARN" ? console.warn : console.debug;
     method("[paper-master]", entry);
   }
+  if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+    void invoke("write_ui_log", {
+      event: { operation, message, request_id: context.requestId },
+    }).catch(() => undefined);
+  }
 }
 
 export const uiLogger = {
@@ -22,4 +27,5 @@ export const uiLogger = {
   warn: (operation: string, message: string, context?: LogContext) => write("WARN", operation, message, context),
   error: (operation: string, message: string, context?: LogContext) => write("ERROR", operation, message, context),
 };
+import { invoke } from "@tauri-apps/api/core";
 
