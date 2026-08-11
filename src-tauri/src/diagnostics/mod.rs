@@ -34,6 +34,10 @@ pub struct LogEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_character_count: Option<usize>,
@@ -78,6 +82,8 @@ impl LogEvent {
             request_id: None,
             duration_ms: None,
             provider: None,
+            method: None,
+            endpoint: None,
             model: None,
             input_character_count: None,
             http_status: None,
@@ -129,5 +135,33 @@ impl AppLogger {
             .lock()
             .map(|items| items.iter().cloned().collect())
             .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lm_studio_transport_event_contains_safe_diagnostic_fields() {
+        let mut event = LogEvent::info("ai.lmstudio", "response", "AI provider response received");
+        event.request_id = Some("analysis-test-request".into());
+        event.provider = Some("lmstudio".into());
+        event.method = Some("POST".into());
+        event.endpoint = Some("/v1/chat/completions".into());
+        event.model = Some("deepseek-r1-distill-llama-8b".into());
+        event.http_status = Some(200);
+        event.duration_ms = Some(321);
+
+        let json = serde_json::to_value(event).expect("diagnostic JSON");
+        assert_eq!(json["request_id"], "analysis-test-request");
+        assert_eq!(json["provider"], "lmstudio");
+        assert_eq!(json["method"], "POST");
+        assert_eq!(json["endpoint"], "/v1/chat/completions");
+        assert_eq!(json["model"], "deepseek-r1-distill-llama-8b");
+        assert_eq!(json["http_status"], 200);
+        assert_eq!(json["duration_ms"], 321);
+        assert!(json.get("prompt").is_none());
+        assert!(json.get("paper_content").is_none());
     }
 }

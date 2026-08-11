@@ -23,6 +23,9 @@ pub struct ProviderResponse<T> {
     pub value: T,
     pub http_status: Option<u16>,
     pub retry_count: usize,
+    pub method: Option<String>,
+    pub endpoint: Option<String>,
+    pub model: Option<String>,
 }
 
 #[async_trait]

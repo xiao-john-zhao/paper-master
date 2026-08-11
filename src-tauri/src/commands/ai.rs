@@ -167,10 +167,14 @@ async fn analyze_inner(
             );
             transport_event.request_id = Some(request.request_id.clone());
             transport_event.provider = Some(provider.id().to_string());
-            transport_event.model = Some(if settings.model.is_empty() {
-                "auto".into()
-            } else {
-                settings.model.clone()
+            transport_event.method = response.method.clone();
+            transport_event.endpoint = response.endpoint.clone();
+            transport_event.model = response.model.clone().or_else(|| {
+                Some(if settings.model.is_empty() {
+                    "auto".into()
+                } else {
+                    settings.model.clone()
+                })
             });
             transport_event.http_status = response.http_status;
             transport_event.duration_ms = Some(started.elapsed().as_millis());
@@ -212,10 +216,14 @@ async fn analyze_inner(
             );
             event.request_id = Some(request.request_id.clone());
             event.provider = Some(provider.id().to_string());
-            event.model = Some(if settings.model.is_empty() {
-                "auto".into()
-            } else {
-                settings.model.clone()
+            event.method = response.method.clone();
+            event.endpoint = response.endpoint.clone();
+            event.model = response.model.clone().or_else(|| {
+                Some(if settings.model.is_empty() {
+                    "auto".into()
+                } else {
+                    settings.model.clone()
+                })
             });
             event.input_character_count = Some(input.chars().count());
             event.http_status = response.http_status;
@@ -251,6 +259,10 @@ async fn analyze_inner(
             event.error_code = Some(error.code_string().to_string());
             event.request_id = Some(request.request_id.clone());
             event.provider = Some(provider.id().to_string());
+            if provider.id() == "lmstudio" {
+                event.method = Some("POST".into());
+                event.endpoint = Some("/v1/chat/completions".into());
+            }
             event.model = Some(if settings.model.is_empty() {
                 "auto".into()
             } else {
@@ -404,10 +416,14 @@ async fn compare_inner(
             let mut event = LogEvent::info("ai.provider", "compare", "多篇论文结构化对比已完成");
             event.request_id = Some(request.request_id.clone());
             event.provider = Some(provider.id().to_string());
-            event.model = Some(if settings.model.is_empty() {
-                "auto".into()
-            } else {
-                settings.model.clone()
+            event.method = response.method.clone();
+            event.endpoint = response.endpoint.clone();
+            event.model = response.model.clone().or_else(|| {
+                Some(if settings.model.is_empty() {
+                    "auto".into()
+                } else {
+                    settings.model.clone()
+                })
             });
             event.input_character_count = Some(input.chars().count());
             event.http_status = response.http_status;
@@ -437,6 +453,15 @@ async fn compare_inner(
             event.error_code = Some(error.code_string().to_string());
             event.request_id = Some(request.request_id.clone());
             event.provider = Some(provider.id().to_string());
+            if provider.id() == "lmstudio" {
+                event.method = Some("POST".into());
+                event.endpoint = Some("/v1/chat/completions".into());
+            }
+            event.model = Some(if settings.model.is_empty() {
+                "auto".into()
+            } else {
+                settings.model.clone()
+            });
             event.parse_success = Some(false);
             event.duration_ms = Some(started.elapsed().as_millis());
             logger.log(event);

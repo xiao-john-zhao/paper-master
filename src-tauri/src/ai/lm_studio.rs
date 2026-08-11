@@ -79,17 +79,23 @@ struct ModelAvailability {
     id: String,
     loaded_instance: Option<String>,
 }
-#[derive(Deserialize)]
-struct ChatResponse {
-    choices: Vec<ChatChoice>,
+
+#[derive(Clone, Copy)]
+enum LmStudioApi {
+    OpenAi,
+    NativeV1,
+    LegacyV0,
 }
-#[derive(Deserialize)]
-struct ChatChoice {
-    message: ChatMessage,
+
+struct LmStudioEndpointBuilder {
+    origin: url::Url,
 }
-#[derive(Deserialize)]
-struct ChatMessage {
-    content: Option<String>,
+
+#[derive(Debug)]
+struct ChatCompletion {
+    content: String,
+    http_status: u16,
+    endpoint: String,
 }
 
 #[derive(Serialize)]
@@ -192,7 +198,7 @@ impl AIProvider for LMStudioProvider {
     ) -> AppResult<ProviderResponse<PaperAnalysisResult>> {
         let model = self.resolve_model(settings).await?;
         let prompt = build_analysis_user_prompt(input);
-        let (mut content, mut status) = self
+        let mut completion = self
             .send_chat(
                 ANALYSIS_SYSTEM_PROMPT,
                 &prompt,
@@ -201,20 +207,24 @@ impl AIProvider for LMStudioProvider {
                 cancellation.clone(),
             )
             .await?;
+        let mut content = completion.content;
         match parse_analysis_response(&content)
             .and_then(|value| validate_analysis_tags(value, input))
         {
             Ok(value) => Ok(ProviderResponse {
                 value,
-                http_status: Some(status),
+                http_status: Some(completion.http_status),
                 retry_count: 0,
+                method: Some("POST".into()),
+                endpoint: Some(completion.endpoint),
+                model: Some(model.clone()),
             }),
             Err(first_error) => {
                 for retry in 1..=AI_STRUCTURED_RETRY_COUNT {
                     let repair = format!(
                         "{REPAIR_ANALYSIS_PROMPT}\n\n论文内容：\n{input}\n\n待修复响应：\n{content}"
                     );
-                    (content, status) = self
+                    completion = self
                         .send_chat(
                             REPAIR_ANALYSIS_PROMPT,
                             &repair,
@@ -223,13 +233,17 @@ impl AIProvider for LMStudioProvider {
                             cancellation.clone(),
                         )
                         .await?;
+                    content = completion.content;
                     if let Ok(value) = parse_analysis_response(&content)
                         .and_then(|value| validate_analysis_tags(value, input))
                     {
                         return Ok(ProviderResponse {
                             value,
-                            http_status: Some(status),
+                            http_status: Some(completion.http_status),
                             retry_count: retry,
+                            method: Some("POST".into()),
+                            endpoint: Some(completion.endpoint),
+                            model: Some(model.clone()),
                         });
                     }
                 }
@@ -259,7 +273,7 @@ impl AIProvider for LMStudioProvider {
     ) -> AppResult<ProviderResponse<PaperComparisonResult>> {
         let model = self.resolve_model(settings).await?;
         let prompt = build_comparison_user_prompt(input);
-        let (mut content, mut status) = self
+        let mut completion = self
             .send_chat(
                 COMPARISON_SYSTEM_PROMPT,
                 &prompt,
@@ -268,16 +282,20 @@ impl AIProvider for LMStudioProvider {
                 cancellation.clone(),
             )
             .await?;
+        let mut content = completion.content;
         match parse_comparison_response(&content) {
             Ok(value) => Ok(ProviderResponse {
                 value,
-                http_status: Some(status),
+                http_status: Some(completion.http_status),
                 retry_count: 0,
+                method: Some("POST".into()),
+                endpoint: Some(completion.endpoint),
+                model: Some(model.clone()),
             }),
             Err(first_error) => {
                 for retry in 1..=AI_STRUCTURED_RETRY_COUNT {
                     let repair = format!("{REPAIR_COMPARISON_PROMPT}\n\nRESPONSE:\n{content}");
-                    (content, status) = self
+                    completion = self
                         .send_chat(
                             REPAIR_COMPARISON_PROMPT,
                             &repair,
@@ -286,11 +304,15 @@ impl AIProvider for LMStudioProvider {
                             cancellation.clone(),
                         )
                         .await?;
+                    content = completion.content;
                     if let Ok(value) = parse_comparison_response(&content) {
                         return Ok(ProviderResponse {
                             value,
-                            http_status: Some(status),
+                            http_status: Some(completion.http_status),
                             retry_count: retry,
+                            method: Some("POST".into()),
+                            endpoint: Some(completion.endpoint),
+                            model: Some(model.clone()),
                         });
                     }
                 }
@@ -319,7 +341,11 @@ impl LMStudioProvider {
         settings: &AppSettings,
     ) -> AppResult<Option<Vec<ModelAvailability>>> {
         let response = client(settings)?
-            .get(native_endpoint(settings, "models")?)
+            .get(build_lm_studio_url(
+                settings,
+                LmStudioApi::NativeV1,
+                "models",
+            )?)
             .send()
             .await
             .map_err(request_error)?;
@@ -362,7 +388,11 @@ impl LMStudioProvider {
         settings: &AppSettings,
     ) -> AppResult<Option<Vec<ModelAvailability>>> {
         let response = client(settings)?
-            .get(legacy_endpoint(settings, "models")?)
+            .get(build_lm_studio_url(
+                settings,
+                LmStudioApi::LegacyV0,
+                "models",
+            )?)
             .send()
             .await
             .map_err(request_error)?;
@@ -397,7 +427,7 @@ impl LMStudioProvider {
         settings: &AppSettings,
     ) -> AppResult<Vec<ModelAvailability>> {
         let client = client(settings)?;
-        let url = endpoint(settings, "models")?;
+        let url = build_lm_studio_url(settings, LmStudioApi::OpenAi, "models")?;
         let response = client.get(url).send().await.map_err(request_error)?;
         if !response.status().is_success() {
             return Err(AppError::new(
@@ -471,7 +501,11 @@ impl LMStudioProvider {
         model: &str,
     ) -> AppResult<Option<String>> {
         let response = client(settings)?
-            .post(native_endpoint(settings, "models/load")?)
+            .post(build_lm_studio_url(
+                settings,
+                LmStudioApi::NativeV1,
+                "models/load",
+            )?)
             .json(&serde_json::json!({ "model": model }))
             .send()
             .await
@@ -503,15 +537,15 @@ impl LMStudioProvider {
         model: &str,
         settings: &AppSettings,
         cancellation: CancellationToken,
-    ) -> AppResult<(String, u16)> {
+    ) -> AppResult<ChatCompletion> {
         let client = client(settings)?;
-        let url = endpoint(settings, "chat/completions")?;
+        let url = build_lm_studio_url(settings, LmStudioApi::OpenAi, "chat/completions")?;
+        let endpoint = url.path().to_string();
         let body = serde_json::json!({
             "model": model,
             "messages": [RequestMessage { role: "system", content: system }, RequestMessage { role: "user", content: user }],
             "temperature": settings.temperature,
-            "stream": false,
-            "response_format": { "type": "json_object" }
+            "stream": false
         });
         let request = client.post(url).json(&body).send();
         let response = tokio::select! {
@@ -526,26 +560,35 @@ impl LMStudioProvider {
             )
             .detail(format!("HTTP {status}")));
         }
-        let body: ChatResponse = response.json().await.map_err(|error| {
+        let body: serde_json::Value = response.json().await.map_err(|error| {
             AppError::new(
-                ErrorCode::AiInvalidJson,
-                "LM Studio returned an invalid completion envelope.",
+                ErrorCode::LmstudioInvalidResponse,
+                "LM Studio returned HTTP success with an invalid Chat Completions response.",
             )
             .detail(error.to_string())
         })?;
         let content = body
-            .choices
-            .into_iter()
-            .next()
-            .and_then(|choice| choice.message.content)
+            .get("choices")
+            .and_then(serde_json::Value::as_array)
+            .filter(|choices| !choices.is_empty())
+            .and_then(|choices| choices[0].get("message"))
+            .and_then(serde_json::Value::as_object)
+            .and_then(|message| message.get("content"))
+            .and_then(serde_json::Value::as_str)
             .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| {
                 AppError::new(
-                    ErrorCode::AiInvalidJson,
-                    "LM Studio returned an empty final response.",
+                    ErrorCode::LmstudioInvalidResponse,
+                    "LM Studio returned HTTP success without a usable Chat Completions message.",
                 )
-            })?;
-        Ok((content, status))
+                .detail("Expected a non-empty choices[0].message.content string.")
+            })?
+            .to_string();
+        Ok(ChatCompletion {
+            content,
+            http_status: status,
+            endpoint,
+        })
     }
 }
 
@@ -565,59 +608,57 @@ fn client(settings: &AppSettings) -> AppResult<Client> {
         })?)
 }
 
-fn endpoint(settings: &AppSettings, suffix: &str) -> AppResult<url::Url> {
-    let mut base = local_base_url(settings)?;
-    if !base.path().ends_with('/') {
-        base.set_path(&format!("{}/", base.path()));
-    }
-    base.join(suffix).map_err(|error| {
-        AppError::new(
-            ErrorCode::InvalidSettings,
-            "LM Studio endpoint could not be constructed.",
-        )
-        .detail(error.to_string())
-    })
-}
-
-fn native_endpoint(settings: &AppSettings, suffix: &str) -> AppResult<url::Url> {
-    management_endpoint(settings, "api/v1", suffix)
-}
-
-fn legacy_endpoint(settings: &AppSettings, suffix: &str) -> AppResult<url::Url> {
-    management_endpoint(settings, "api/v0", suffix)
-}
-
-fn management_endpoint(
+fn build_lm_studio_url(
     settings: &AppSettings,
-    api_path: &str,
+    api: LmStudioApi,
     suffix: &str,
 ) -> AppResult<url::Url> {
-    let mut base = local_base_url(settings)?;
-    base.set_path(&format!("/{api_path}/"));
-    base.set_query(None);
-    base.set_fragment(None);
-    base.join(suffix).map_err(|error| {
-        AppError::new(
-            ErrorCode::InvalidSettings,
-            "LM Studio management endpoint could not be constructed.",
-        )
-        .detail(error.to_string())
-    })
+    LmStudioEndpointBuilder::from_settings(settings)?.build(api, suffix)
 }
 
-fn local_base_url(settings: &AppSettings) -> AppResult<url::Url> {
-    let base = url::Url::parse(&settings.base_url).map_err(|error| {
-        AppError::new(ErrorCode::InvalidSettings, "LM Studio Base URL is invalid.")
-            .detail(error.to_string())
-    })?;
-    if base.scheme() != "http" || !matches!(base.host_str(), Some("localhost") | Some("127.0.0.1"))
-    {
-        return Err(AppError::new(
-            ErrorCode::InvalidSettings,
-            "Local Only mode permits AI requests only to localhost or 127.0.0.1.",
-        ));
+impl LmStudioEndpointBuilder {
+    fn from_settings(settings: &AppSettings) -> AppResult<Self> {
+        let mut origin = url::Url::parse(settings.base_url.trim()).map_err(|error| {
+            AppError::new(ErrorCode::InvalidSettings, "LM Studio Base URL is invalid.")
+                .detail(error.to_string())
+        })?;
+        if origin.scheme() != "http"
+            || !matches!(origin.host_str(), Some("localhost") | Some("127.0.0.1"))
+        {
+            return Err(AppError::new(
+                ErrorCode::InvalidSettings,
+                "Local Only mode permits AI requests only to localhost or 127.0.0.1.",
+            ));
+        }
+        let supplied_path = origin.path().trim_matches('/');
+        if !supplied_path.is_empty() && supplied_path != "v1" {
+            return Err(AppError::new(
+                ErrorCode::InvalidSettings,
+                "LM Studio Base URL must end at the server root or /v1.",
+            ));
+        }
+        origin.set_path("/");
+        origin.set_query(None);
+        origin.set_fragment(None);
+        Ok(Self { origin })
     }
-    Ok(base)
+
+    fn build(&self, api: LmStudioApi, suffix: &str) -> AppResult<url::Url> {
+        if suffix.is_empty() || suffix.starts_with('/') {
+            return Err(AppError::new(
+                ErrorCode::InvalidSettings,
+                "LM Studio endpoint path must be relative and non-empty.",
+            ));
+        }
+        let prefix = match api {
+            LmStudioApi::OpenAi => "/v1",
+            LmStudioApi::NativeV1 => "/api/v1",
+            LmStudioApi::LegacyV0 => "/api/v0",
+        };
+        let mut endpoint = self.origin.clone();
+        endpoint.set_path(&format!("{prefix}/{suffix}"));
+        Ok(endpoint)
+    }
 }
 
 fn request_error(error: reqwest::Error) -> AppError {
@@ -642,26 +683,112 @@ mod tests {
     };
 
     #[test]
-    fn only_loopback_endpoints_are_allowed() {
-        let local = AppSettings::default();
-        assert!(endpoint(&local, "models")
-            .expect("local")
-            .as_str()
-            .ends_with("/v1/models"));
-        assert!(native_endpoint(&local, "models/load")
-            .expect("native")
-            .as_str()
-            .ends_with("/api/v1/models/load"));
+    fn openai_endpoints_are_normalized_for_every_supported_base_url() {
+        for base_url in [
+            "http://127.0.0.1:1234",
+            "http://127.0.0.1:1234/",
+            "http://127.0.0.1:1234/v1",
+            "http://127.0.0.1:1234/v1/",
+        ] {
+            let settings = AppSettings {
+                base_url: base_url.into(),
+                ..Default::default()
+            };
+            assert_eq!(
+                build_lm_studio_url(&settings, LmStudioApi::OpenAi, "models")
+                    .expect("models endpoint")
+                    .as_str(),
+                "http://127.0.0.1:1234/v1/models"
+            );
+            assert_eq!(
+                build_lm_studio_url(&settings, LmStudioApi::OpenAi, "chat/completions")
+                    .expect("chat endpoint")
+                    .as_str(),
+                "http://127.0.0.1:1234/v1/chat/completions"
+            );
+        }
+    }
+
+    #[test]
+    fn only_loopback_endpoints_and_relative_suffixes_are_allowed() {
         let external = AppSettings {
             base_url: "http://example.com/v1".into(),
             ..Default::default()
         };
         assert_eq!(
-            endpoint(&external, "models")
+            build_lm_studio_url(&external, LmStudioApi::OpenAi, "models")
                 .expect_err("external")
                 .code_string(),
             "INVALID_SETTINGS"
         );
+        let local = AppSettings::default();
+        assert_eq!(
+            build_lm_studio_url(&local, LmStudioApi::OpenAi, "/chat/completions")
+                .expect_err("root-relative path")
+                .code_string(),
+            "INVALID_SETTINGS"
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_http_200_without_a_chat_completions_envelope() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("request");
+            let request = read_request(&mut stream);
+            assert!(request.starts_with("POST /v1/chat/completions "));
+            write_json_response(&mut stream, r#"{"unexpected":"endpoint"}"#);
+        });
+        let settings = AppSettings {
+            base_url: format!("http://{address}"),
+            ..Default::default()
+        };
+        let error = LMStudioProvider
+            .send_chat(
+                "Return JSON.",
+                "Return an object.",
+                "test-model",
+                &settings,
+                CancellationToken::new(),
+            )
+            .await
+            .expect_err("invalid envelope");
+        assert_eq!(error.code_string(), "LMSTUDIO_INVALID_RESPONSE");
+        server.join().expect("server");
+    }
+
+    #[tokio::test]
+    async fn accepts_a_valid_chat_completions_envelope() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("request");
+            let request = read_request(&mut stream);
+            assert!(request.starts_with("POST /v1/chat/completions "));
+            write_json_response(
+                &mut stream,
+                r#"{"choices":[{"message":{"role":"assistant","content":"{\"ok\":true}"}}]}"#,
+            );
+        });
+        let settings = AppSettings {
+            base_url: format!("http://{address}/v1/"),
+            ..Default::default()
+        };
+        let completion = LMStudioProvider
+            .send_chat(
+                "Return JSON.",
+                "Return an object.",
+                "test-model",
+                &settings,
+                CancellationToken::new(),
+            )
+            .await
+            .expect("valid envelope");
+        assert_eq!(completion.endpoint, "/v1/chat/completions");
+        assert_eq!(completion.http_status, 200);
+        assert_eq!(completion.content, r#"{"ok":true}"#);
+        server.join().expect("server");
     }
 
     #[tokio::test]
@@ -727,5 +854,14 @@ mod tests {
             }
         }
         String::from_utf8(request).expect("utf8 request")
+    }
+
+    fn write_json_response(stream: &mut TcpStream, body: &str) {
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream.write_all(response.as_bytes()).expect("response");
     }
 }

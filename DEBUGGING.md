@@ -12,6 +12,28 @@ Use a request ID such as `analysis-YYYYMMDDHHMMSS-xxxxxxxx` to trace UI, provide
 
 The page can copy a compact diagnostic summary and open the JSONL log directory. Recent error events are held in memory for display; the durable log remains append-only.
 
+## LM Studio OpenAI-compatible endpoints
+
+paper-master treats the configured Base URL as the LM Studio server root or its OpenAI-compatible `/v1` root. These values are equivalent:
+
+```text
+http://127.0.0.1:1234
+http://127.0.0.1:1234/
+http://127.0.0.1:1234/v1
+http://127.0.0.1:1234/v1/
+```
+
+The final OpenAI-compatible requests must always be:
+
+```text
+GET  /v1/models
+POST /v1/chat/completions
+```
+
+LM Studio Server Logs are the quickest way to detect path loss. A paper-master analysis must show `POST /v1/chat/completions`. If the log instead shows `POST /chat/completions` together with `Unexpected endpoint or method`, the client has incorrectly replaced the `/v1` base path. HTTP 200 alone is not proof of success because LM Studio can return 200 for an invalid endpoint; paper-master also validates the JSON body and requires a non-empty `choices[0].message.content`. Invalid success bodies use `LMSTUDIO_INVALID_RESPONSE`.
+
+The Diagnostics JSONL transport event records `request_id`, `provider`, `method`, `endpoint`, `model`, `http_status`, and `duration_ms`. It never records the full paper text or complete prompt.
+
 ## Subsystem checks
 
 - Database: use **Test Database** in Diagnostics to run an integrity check and inspect migration/table counts.
@@ -22,7 +44,7 @@ The page can copy a compact diagnostic summary and open the JSONL log directory.
 - AI JSON: `AI_INVALID_JSON` records parse/retry status without recording the model reasoning or full response.
 - Chinese output/tags: English-only narrative output, tags lacking paper evidence, or fewer than three supported tags are rejected and sent through one constrained repair retry. The managed vocabulary is naming context only and is deliberately excluded from tag evidence checks.
 
-Common codes include `FILE_NOT_FOUND`, `DUPLICATE_PAPER`, `PDF_READ_FAILED`, `PDF_TEXT_EMPTY`, `DATABASE_READ_FAILED`, `DATABASE_WRITE_FAILED`, `LMSTUDIO_CONNECTION_FAILED`, `LMSTUDIO_MODEL_NOT_FOUND`, `AI_TIMEOUT`, `AI_CANCELLED`, `AI_INVALID_JSON`, and `INVALID_SETTINGS`.
+Common codes include `FILE_NOT_FOUND`, `DUPLICATE_PAPER`, `PDF_READ_FAILED`, `PDF_TEXT_EMPTY`, `DATABASE_READ_FAILED`, `DATABASE_WRITE_FAILED`, `LMSTUDIO_CONNECTION_FAILED`, `LMSTUDIO_MODEL_NOT_FOUND`, `LMSTUDIO_INVALID_RESPONSE`, `AI_TIMEOUT`, `AI_CANCELLED`, `AI_INVALID_JSON`, and `INVALID_SETTINGS`.
 
 ## Verification
 

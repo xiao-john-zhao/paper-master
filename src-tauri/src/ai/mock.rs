@@ -41,7 +41,7 @@ impl AIProvider for MockAIProvider {
     ) -> AppResult<ProviderResponse<PaperAnalysisResult>> {
         tokio::select! {
             _ = cancellation.cancelled() => Err(AppError::new(ErrorCode::AiCancelled, "AI analysis was cancelled.")),
-            _ = tokio::time::sleep(std::time::Duration::from_millis(350)) => Ok(ProviderResponse { value: mock_analysis(), http_status: None, retry_count: 0 }),
+            _ = tokio::time::sleep(std::time::Duration::from_millis(350)) => Ok(ProviderResponse { value: mock_analysis(), http_status: None, retry_count: 0, method: None, endpoint: None, model: Some("paper-master-mock-v1".into()) }),
         }
     }
     async fn generate_tags(
@@ -60,7 +60,7 @@ impl AIProvider for MockAIProvider {
     ) -> AppResult<ProviderResponse<PaperComparisonResult>> {
         tokio::select! {
             _ = cancellation.cancelled() => Err(AppError::new(ErrorCode::AiCancelled, "AI comparison was cancelled.")),
-            _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => Ok(ProviderResponse { value: PaperComparisonResult { common_points: vec!["这些论文都关注本地、可靠的科研工作流。".into()], key_differences: vec!["各论文在上下文构建、证据检索与评估重点上采用了不同方案。".into()], method_comparison: "这些方法采用互补的信息选择与处理策略，并在输入组织方式上存在差异。".into(), contribution_comparison: "各论文分别在输入构建、证据排序或评估框架方面提供了可组合的贡献。".into(), summary: "这些研究具有互补性，可共同用于构建本地化的论文管理与分析流程。".into() }, http_status: None, retry_count: 0 }),
+            _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => Ok(ProviderResponse { value: PaperComparisonResult { common_points: vec!["这些论文都关注本地、可靠的科研工作流。".into()], key_differences: vec!["各论文在上下文构建、证据检索与评估重点上采用了不同方案。".into()], method_comparison: "这些方法采用互补的信息选择与处理策略，并在输入组织方式上存在差异。".into(), contribution_comparison: "各论文分别在输入构建、证据排序或评估框架方面提供了可组合的贡献。".into(), summary: "这些研究具有互补性，可共同用于构建本地化的论文管理与分析流程。".into() }, http_status: None, retry_count: 0, method: None, endpoint: None, model: Some("paper-master-mock-v1".into()) }),
         }
     }
 }
