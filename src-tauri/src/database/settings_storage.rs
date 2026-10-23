@@ -104,8 +104,7 @@ fn validate(settings: &AppSettings) -> AppResult<()> {
     if !matches!(
         settings.privacy_mode.as_str(),
         "local_only" | "codex_online"
-    ) || (settings.ai_provider == "codex" && settings.privacy_mode != "codex_online")
-    {
+    ) {
         return Err(invalid(
             "Codex 模式需要明确启用联网授权；本地模型仍仅允许回环地址。",
         ));
@@ -140,7 +139,8 @@ mod tests {
             ai_provider: "codex".into(),
             ..Default::default()
         };
-        assert!(validate(&settings).is_err());
+        assert!(validate(&settings).is_ok());
+        assert_eq!(settings.effective_provider(), "lmstudio");
         settings.privacy_mode = "codex_online".into();
         assert!(validate(&settings).is_ok());
         settings.base_url = "https://example.com/v1".into();

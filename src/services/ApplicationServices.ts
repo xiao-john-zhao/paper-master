@@ -13,6 +13,8 @@ import type { AIProvider } from "../providers/ai/AIProvider";
 import { ResearchService } from "./ResearchService";
 import { RelationshipGraphService } from "./RelationshipGraphService";
 
+import { AnalysisVersionsService } from "./AnalysisVersionsService";
+
 export function createApplicationServices() {
   const tauri = isTauriRuntime();
   const repository = tauri ? new TauriPaperRepository() : new InMemoryPaperRepository();
@@ -31,6 +33,7 @@ export function createApplicationServices() {
     paperService,
     graphService: new RelationshipGraphService(paperService),
     analysisService,
+    analysisVersionsService: new AnalysisVersionsService(repository),
     comparisonService: new ComparisonService(tauri ? providers.lmstudio : providers.mock, analysisService, repository),
   };
 }

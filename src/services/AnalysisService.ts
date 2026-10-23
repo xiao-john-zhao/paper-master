@@ -17,6 +17,10 @@ export class AnalysisService {
     const analysis = await this.provider.analyzePaper({ paper_id: paper.id, request_id: requestId, ensure_only: ensureOnly });
     const current = await this.repository.findById(paper.id);
     if (!current) throw new Error("论文已从文献库移除。");
+    if (isTauriRuntime()) {
+      progressService.finish(requestId,"completed","分析完成，已保留独立结果");
+      return { paper: current, requestId };
+    }
     const updated: Paper = { ...current, analysis, tags: analysis.tags, analysis_status: "analyzed", analysis_error: undefined, updated_at: new Date().toISOString() };
     const saved = await this.repository.update(updated);
     progressService.finish(requestId,"completed","分析完成，已保存到论文库");

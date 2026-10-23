@@ -102,7 +102,7 @@ export function App() {
     if (selectedId && !services.tauri) setAuthorError("作者关系和原文证据在桌面版提供。");
     if (selectedId && services.tauri) void services.paperService.authorContext(selectedId).then((context) => { if (active) setAuthorContext(context); }).catch((error) => { if (active) setAuthorError(normalizeAppError(error).message); });
     return () => { active = false; };
-  }, [selectedId, papers.length]);
+  }, [selectedId, papers.length, selected?.authors.join("|")]);
   const tags = useMemo(() => {
     const counts = new Map<string, number>();
     papers.forEach((paper) => paper.tags.forEach((paperTag) => counts.set(paperTag, (counts.get(paperTag) ?? 0) + 1)));
@@ -225,8 +225,8 @@ export function App() {
 
   function settingsSaved(settings: AppSettings) {
     setOnlineMode(settings.privacy_mode === "codex_online");
-    services.analysisService.setProvider(services.providers[settings.ai_provider]);
-    services.comparisonService.setProvider(services.providers[settings.ai_provider]);
+    services.analysisService.setProvider(services.providers[settings.ai_provider === "codex" && settings.privacy_mode === "local_only" ? "lmstudio" : settings.ai_provider]);
+    services.comparisonService.setProvider(services.providers[settings.ai_provider === "codex" && settings.privacy_mode === "local_only" ? "lmstudio" : settings.ai_provider]);
   }
 
   return (
@@ -240,13 +240,13 @@ export function App() {
           <PaperList papers={papers} selectedId={selectedId} compareIds={compareIds} loading={loading} onSelect={setSelectedId} onToggleCompare={toggleCompare}/>
           <footer className="library-count">{papers.length} paper{papers.length === 1 ? "" : "s"}</footer>
         </section>
-        <PaperDetail requestId={analyzingId === selected?.id ? activeRequestId : undefined} paper={selected} authorContext={authorContext} authorError={authorError} onSelectRelated={(id) => { setSearch(""); setTag(undefined); setFilter("all"); setSelectedId(id); }} onRelink={() => void relinkSelected()} analyzing={!!selected && (analyzingId === selected.id || ["queued", "analyzing"].includes(selected.analysis_status))} onAnalyze={() => void analyzeSelected()} onCancel={() => void cancelAnalysis()} onOpen={() => void openSelected()} onDelete={() => void deleteSelected()}/>
+        <PaperDetail onSaveMetadata={async metadata=>{if(selected){await services.paperService.editMetadata(selected.id,metadata);await loadPapers(true);}}} versionsService={services.analysisVersionsService} onChanged={() => void loadPapers(true)} requestId={analyzingId === selected?.id ? activeRequestId : undefined} paper={selected} authorContext={authorContext} authorError={authorError} onSelectRelated={(id) => { setSearch(""); setTag(undefined); setFilter("all"); setSelectedId(id); }} onRelink={() => void relinkSelected()} analyzing={!!selected && (analyzingId === selected.id || ["queued", "analyzing"].includes(selected.analysis_status))} onAnalyze={() => void analyzeSelected()} onCancel={() => void cancelAnalysis()} onOpen={() => void openSelected()} onDelete={() => void deleteSelected()}/>
       </div>}
       {view === "settings" && <SettingsPage storage={services.settingsStorage} providers={services.providers} onSaved={settingsSaved} onNotify={notify}/>} 
       {view === "diagnostics" && <DiagnosticsPage onNotify={notify}/>} 
       {view === "research" && <ResearchPage service={services.researchService} paperService={services.paperService} initialReferenceId={selectedId} desktop={services.tauri} onImported={() => void loadPapers(true)} onSettings={() => setView("settings")}/>}
       {view === "graph" && <RelationshipGraphPage service={services.graphService} onPaper={(id)=>{setSearch("");setTag(undefined);setFilter("all");setSelectedId(id);setView("library");}}/>}
-      {comparisonOpen && comparisonPapers.length >= 2 && <ComparisonDialog papers={comparisonPapers} result={comparisonResult} loading={comparing} error={comparisonError} requestId={comparisonRequestId} onClose={() => setComparisonOpen(false)} onCancel={() => void cancelComparison()} onRetry={() => void compareSelected()}/>}
+      {comparisonOpen && comparisonPapers.length >= 2 && <ComparisonDialog onSave={async result=>{if(comparisonRequestId)setComparisonResult(await services.comparisonService.saveEdited(comparisonRequestId,result));}} papers={comparisonPapers} result={comparisonResult} loading={comparing} error={comparisonError} requestId={comparisonRequestId} onClose={() => setComparisonOpen(false)} onCancel={() => void cancelComparison()} onRetry={() => void compareSelected()}/>}
       <TaskCenter/>
       <Toast toast={toast} onClose={() => setToast(undefined)}/>
     </div>

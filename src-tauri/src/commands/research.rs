@@ -18,6 +18,14 @@ use crate::{
 use tauri::{webview::DownloadEvent, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
 
+fn require_online(database: &Database) -> AppResult<()> {
+    let connection = database.connection()?;
+    if SqliteSettingsStorage::new(&connection).get()?.privacy_mode != "codex_online" {
+        return Err(error("联网已关闭，请在设置中启用联网功能。"));
+    }
+    Ok(())
+}
+
 fn error(message: &str) -> AppError {
     AppError::new(ErrorCode::ResearchFailed, message)
 }
@@ -65,6 +73,7 @@ pub async fn search_online_papers(
     ));
     let result = async {
         let _permit = requests.acquire(&token).await?;
+        require_online(&database)?;
         tokio::time::timeout(
             std::time::Duration::from_millis(settings.request_timeout_ms),
             research::search_observed(
@@ -127,15 +136,27 @@ pub async fn download_online_paper(
     paths: State<'_, AppPaths>,
     pdf_url: String,
     request_id: String,
+    database: State<'_, Database>,
+    requests: State<'_, AIRequestRegistry>,
 ) -> AppResult<ImportSummary> {
+    require_online(&database)?;
+    let token = requests.register(&request_id);
+    if let Err(error) = require_online(&database) {
+        requests.remove(&request_id);
+        return Err(error);
+    }
     emit_progress(
         &app,
         TaskProgress::running(&request_id, "download", "正在连接全文来源"),
     );
     let result = async {
-        let file = research::download_observed(
+        let directory = paths.data_dir.join("downloads");
+        let file = tokio::select! {
+            biased;
+            _ = token.cancelled() => return Err(error("联网关闭或下载已取消。")),
+            downloaded = research::download_observed(
             &pdf_url,
-            &paths.data_dir.join("downloads"),
+            &directory,
             |done, total| {
                 emit_progress(
                     &app,
@@ -143,8 +164,9 @@ pub async fn download_online_paper(
                         .counts(done, total, "bytes"),
                 )
             },
-        )
-        .await?;
+        ) => downloaded?,
+        };
+        require_online(&database)?;
         emit_progress(
             &app,
             TaskProgress::running(&request_id, "download", "PDF 已下载并校验，正在导入论文库"),
@@ -175,6 +197,7 @@ pub async fn download_online_paper(
             TaskProgress::running(&request_id, "download", &error.message).finish("failed"),
         ),
     }
+    requests.remove(&request_id);
     result
 }
 
@@ -197,7 +220,9 @@ pub async fn open_ieee_webvpn(
     app: tauri::AppHandle,
     paths: State<'_, AppPaths>,
     ieee_url: Option<String>,
+    database: State<'_, Database>,
 ) -> AppResult<()> {
+    require_online(&database)?;
     let target = match ieee_url {
         Some(value) => research::vpn_url(&value)?,
         None => format!("{}/Xplore/home.jsp", research::IEEE_VPN_ROOT),
@@ -229,10 +254,15 @@ pub async fn open_ieee_webvpn(
         .title("IEEE · 南京邮电大学 WebVPN（试验下载窗口）")
         .inner_size(1200.0, 850.0)
         .data_directory(profile)
-        .on_navigation(|url| {
-            url.scheme() == "https"
-                && url.host_str() == Some("vpn.njupt.edu.cn")
-                && url.port() == Some(8443)
+        .on_navigation({
+            let navigation_app = app.clone();
+            move |url| {
+                let allowed = require_online(navigation_app.state::<Database>().inner()).is_ok();
+                allowed
+                    && url.scheme() == "https"
+                    && url.host_str() == Some("vpn.njupt.edu.cn")
+                    && url.port() == Some(8443)
+            }
         })
         .on_new_window(move |url, _| {
             // IEEE PDF links often use target=_blank. Keep them in the same controlled window
@@ -250,6 +280,9 @@ pub async fn open_ieee_webvpn(
         .on_download(move |webview, event| {
             match event {
                 DownloadEvent::Requested { url, destination } => {
+                    if require_online(webview.app_handle().state::<Database>().inner()).is_err() {
+                        return false;
+                    }
                     if url.scheme() != "https"
                         || url.host_str() != Some("vpn.njupt.edu.cn")
                         || url.port() != Some(8443)
@@ -417,7 +450,12 @@ pub async fn open_ieee_webvpn(
 }
 
 #[tauri::command]
-pub fn open_ieee_external(app: tauri::AppHandle, ieee_url: Option<String>) -> AppResult<()> {
+pub fn open_ieee_external(
+    app: tauri::AppHandle,
+    database: State<'_, Database>,
+    ieee_url: Option<String>,
+) -> AppResult<()> {
+    require_online(&database)?;
     let target = match ieee_url {
         Some(value) => research::vpn_url(&value)?,
         None => format!("{}/Xplore/home.jsp", research::IEEE_VPN_ROOT),
@@ -428,7 +466,12 @@ pub fn open_ieee_external(app: tauri::AppHandle, ieee_url: Option<String>) -> Ap
 }
 
 #[tauri::command]
-pub fn open_relationship_source(app: tauri::AppHandle, url: String) -> AppResult<()> {
+pub fn open_relationship_source(
+    app: tauri::AppHandle,
+    database: State<'_, Database>,
+    url: String,
+) -> AppResult<()> {
+    require_online(&database)?;
     let url = research::relationship_source_url(&url)?;
     app.opener()
         .open_url(url.as_str(), None::<&str>)
@@ -448,4 +491,25 @@ pub fn open_webvpn_credentials(app: tauri::AppHandle) -> AppResult<()> {
     app.opener()
         .open_path(path.to_string_lossy().to_string(), None::<&str>)
         .map_err(|_| error("无法打开私有凭据 TXT。"))
+}
+
+#[cfg(test)]
+mod network_tests {
+    use super::*;
+    #[test]
+    fn network_gate_follows_persisted_switch() {
+        let database = Database::in_memory().unwrap();
+        assert!(require_online(&database).is_err());
+        let mut settings = crate::domain::settings::AppSettings::default();
+        settings.privacy_mode = "codex_online".into();
+        SqliteSettingsStorage::new(&database.connection().unwrap())
+            .save(&settings)
+            .unwrap();
+        assert!(require_online(&database).is_ok());
+        settings.privacy_mode = "local_only".into();
+        SqliteSettingsStorage::new(&database.connection().unwrap())
+            .save(&settings)
+            .unwrap();
+        assert!(require_online(&database).is_err());
+    }
 }

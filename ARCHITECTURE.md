@@ -1,3 +1,14 @@
+# v0.4.0 additions
+
+Migration 8 cleans spurious IEEE membership author fragments in automatically extracted metadata; manually edited metadata is preserved.
+
+- analysis_versions / active_analyses: ordered migration 7, immutable generated baseline on first edit, optimistic revisions, atomic selection/search projection and cascade deletion. Paper.analysis_provider distinguishes extractive records from model outputs.
+- AnalysisVersionsService and MetadataEditor route UI mutations through application services and scoped Rust commands. Metadata patches read current rows; generated comparison originals and editable narratives persist locally in settings records.
+- A persisted privacy_mode is the one network gate. Offline Codex selection resolves to loopback LM Studio; settings revocation cancels registered work and closes the remote WebVPN window.
+- keywords.rs owns conservative canonical aliases; normalization follows model evidence validation. archive.rs builds explicitly non-model excerpts, repairs only unedited missing metadata and supports idempotent batch archiving. Optional local pdftotext has bounded runtime/output and Rust fallback.
+- authors::team_links precomputes author evidence once per document; graph services supply evidence to the pure layout module. Potential-team mode prioritizes connected records and renders distinct dashed edges.
+
+
 # Architecture
 
 ## Dependency direction

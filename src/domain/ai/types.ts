@@ -9,7 +9,7 @@ export const paperAnalysisSchema = z.object({
   key_contributions: z.array(z.string().trim().min(1)).min(1),
   main_results: z.string().trim().min(1),
   limitations: z.string().trim().min(1),
-  tags: z.array(z.string().trim().min(1)).min(3).max(8),
+  tags: z.array(z.string().trim().min(1)).min(1).max(8),
   ai_summary: z.string().trim().min(1),
 });
 

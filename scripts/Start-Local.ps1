@@ -9,18 +9,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$executable = Join-Path $projectRoot 'application\paper-master-local.exe'
-$updatedExecutable = Join-Path $projectRoot 'application\paper-master-updated.exe'
-if (Test-Path -LiteralPath $updatedExecutable) { $executable = $updatedExecutable }
-if (-not $CheckOnly -and -not (Test-Path -LiteralPath $executable)) {
-    throw '本机应用尚未构建。请先执行 scripts\Build-Local.ps1。'
-}
-if (-not $CheckOnly -and (Get-Process -Name 'paper-master-local','paper-master-updated' -ErrorAction SilentlyContinue | Where-Object Path -EQ $executable)) {
-    Write-Host 'paper-master 本机版已在运行。'
+$executable = Join-Path $projectRoot 'application\paper-master.exe'
+if (-not $CheckOnly) {
+    if (-not (Test-Path -LiteralPath $executable)) { throw '请先运行 scripts\Build-Local.ps1。' }
+    if (-not (Get-Process -Name 'paper-master' -ErrorAction SilentlyContinue | Where-Object Path -EQ $executable)) {
+        Start-Process -FilePath $executable -WorkingDirectory $projectRoot -WindowStyle Hidden
+    }
+    Write-Host '已启动统一应用；联网开关位于 Settings，本地模型可选。'
     return
-}
-if (-not $CheckOnly -and $executable -eq $updatedExecutable -and (Get-Process -Name 'paper-master-local' -ErrorAction SilentlyContinue | Where-Object Path -EQ (Join-Path $projectRoot 'application\paper-master-local.exe'))) {
-    throw '旧版仍在运行，请先关闭旧版窗口，再启动更新后的应用。'
 }
 
 if ($SkipLocalModel) {
@@ -51,7 +47,7 @@ if (-not $selected -and -not $Model) { $selected = $languageModels | Select-Obje
 if (-not $selected) { throw '未发现可用语言模型。请在 LM Studio 下载模型，或检查 -Model 参数。' }
 if ($selected.loaded_instances.Count -eq 0) {
     if (-not (Test-Path -LiteralPath $cliPath)) { throw '模型尚未加载，请先在 LM Studio 加载。' }
-    & $cliPath load $selected.key --context-length $ContextLength --parallel 1 -y
+    & $cliPath load $selected.key --context-length $ContextLength --parallel 1 --no-speculative-draft-mtp -y
     if ($LASTEXITCODE -ne 0) { throw '模型加载失败，请在 LM Studio 检查可用内存、显存和上下文长度。' }
 }
 Write-Host "LM Studio 已就绪：$($selected.key)，仅连接 127.0.0.1:1234。"

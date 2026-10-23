@@ -13,6 +13,28 @@ use crate::{
 };
 
 #[tauri::command]
+pub fn get_team_links(
+    database: State<'_, Database>,
+) -> AppResult<Vec<crate::services::authors::TeamLink>> {
+    let connection = database.connection()?;
+    let repository = SqlitePaperRepository::new(&connection);
+    let library = repository
+        .list(&PaperQuery::default())?
+        .into_iter()
+        .map(|paper| {
+            // Team evidence comes from the author header/footnotes, never reference lists.
+            let text: String = repository
+                .extracted_text(&paper.id)?
+                .chars()
+                .take(16000)
+                .collect();
+            Ok((paper, text))
+        })
+        .collect::<AppResult<Vec<_>>>()?;
+    Ok(crate::services::authors::team_links(&library))
+}
+
+#[tauri::command]
 pub fn list_papers(database: State<'_, Database>, query: PaperQuery) -> AppResult<Vec<Paper>> {
     let started = Instant::now();
     let connection = database.connection()?;
@@ -161,4 +183,59 @@ pub fn delete_paper(
 pub fn paper_exists_by_path(database: State<'_, Database>, path: String) -> AppResult<bool> {
     let connection = database.connection()?;
     SqlitePaperRepository::new(&connection).exists_by_path(&path)
+}
+
+#[derive(serde::Deserialize)]
+pub struct EditableMetadata {
+    title: String,
+    authors: Vec<String>,
+    #[serde(rename = "abstract")]
+    abstract_text: Option<String>,
+    publication_venue: Option<String>,
+    year: Option<i32>,
+}
+#[tauri::command]
+pub fn edit_paper_metadata(
+    database: State<'_, Database>,
+    id: String,
+    metadata: EditableMetadata,
+) -> AppResult<Paper> {
+    if metadata.title.trim().is_empty()
+        || metadata.title.len() > 4000
+        || metadata.authors.len() > 100
+        || metadata.authors.iter().any(|a| a.len() > 500)
+        || metadata
+            .abstract_text
+            .as_ref()
+            .is_some_and(|a| a.len() > 100000)
+        || metadata
+            .publication_venue
+            .as_ref()
+            .is_some_and(|a| a.len() > 4000)
+        || metadata.year.is_some_and(|y| !(1900..=2100).contains(&y))
+    {
+        return Err(AppError::new(
+            ErrorCode::AiSchemaValidationFailed,
+            "请检查题名、年份或文字长度。",
+        ));
+    }
+    let connection = database.connection()?;
+    let repo = SqlitePaperRepository::new(&connection);
+    let mut paper = repo
+        .find_by_id(&id)?
+        .ok_or_else(|| AppError::new(ErrorCode::FileNotFound, "论文已移除。"))?;
+    paper.title = metadata.title.trim().into();
+    paper.authors = metadata
+        .authors
+        .into_iter()
+        .map(|a| a.trim().to_string())
+        .filter(|a| !a.is_empty())
+        .collect();
+    paper.abstract_text = metadata.abstract_text;
+    paper.publication_venue = metadata.publication_venue;
+    paper.year = metadata.year;
+    paper.updated_at = chrono::Utc::now().to_rfc3339();
+    let saved = repo.update(&paper)?;
+    connection.execute("INSERT INTO settings(key,value_json,updated_at) VALUES(?1,'true',?2) ON CONFLICT(key) DO UPDATE SET updated_at=excluded.updated_at",rusqlite::params![format!("metadata-edited:{id}"),paper.updated_at]).map_err(|_|AppError::new(ErrorCode::DatabaseWriteFailed,"无法保存元数据编辑标记。"))?;
+    Ok(saved)
 }

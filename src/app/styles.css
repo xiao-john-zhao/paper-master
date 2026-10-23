@@ -415,3 +415,12 @@ progress:not([value])::-webkit-progress-bar { background: linear-gradient(90deg,
 @media(max-width:1250px) { .graph-workspace { grid-template-columns: minmax(0,1fr); }.graph-inspector { min-height: 0; }.graph-statistics>div { padding: 15px; gap: 10px; }.graph-canvas-header { flex-wrap: wrap; } }
 @media(max-width:1050px) { .app-shell { grid-template-columns: 196px minmax(0,1fr); }.library-layout { grid-template-columns: minmax(275px,.75fr) minmax(330px,1.25fr); }.graph-statistics { grid-template-columns: repeat(2,minmax(0,1fr)); }.page-header { flex-wrap: wrap; }.task-center { width: 310px; } }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
+
+.analysis-version-panel { margin: 18px 0; padding: 18px; border: 1px solid #dce3ed; border-radius: 12px; background: #f7f9fd; }
+.analysis-version-toolbar { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:12px; }
+.analysis-version-toolbar label { display:grid; gap:6px; flex:1 1 300px; min-width:0; }
+.analysis-version-toolbar select { max-width:100%; width:100%; padding:9px; }
+.analysis-editor { display:grid; gap:16px; margin-top:18px; }
+.analysis-editor label { display:grid; gap:8px; font-weight:600; }
+.analysis-editor textarea { width:100%; resize:vertical; min-height:80px; padding:12px; font:inherit; font-weight:400; line-height:1.7; border:1px solid #bbc9df; border-radius:8px; background:white; }
+.analysis-edit-actions { display:flex; gap:12px; position:sticky; bottom:0; background:#f7f9fd; padding:12px 0; }

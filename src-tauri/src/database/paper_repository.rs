@@ -168,7 +168,13 @@ impl PaperRepository for SqlitePaperRepository<'_> {
                     .all()?
                     .into_iter()
                     .filter(|paper| {
-                        ids.contains(&paper.id) && matches_query(paper, &non_text_query)
+                        (ids.contains(&paper.id)
+                            || paper.tags.iter().any(|tag| {
+                                crate::services::keywords::canonical(tag).eq_ignore_ascii_case(
+                                    &crate::services::keywords::canonical(text),
+                                )
+                            }))
+                            && matches_query(paper, &non_text_query)
                     })
                     .collect())
             }
@@ -203,7 +209,7 @@ fn fts_expression(query: &str) -> String {
         .join(" AND ")
 }
 
-const PAPER_SELECT: &str = "SELECT id,file_path,file_name,title,authors_json,year,abstract_text,ai_summary,research_problem,core_method,key_contributions_json,main_results,limitations,tags_json,ai_analyzed,analysis_status,analysis_error,pdf_diagnostics_json,created_at,updated_at,analysis_schema_version,research_scenario,key_innovations_json,publication_venue FROM papers";
+const PAPER_SELECT: &str = "SELECT id,file_path,file_name,title,authors_json,year,abstract_text,ai_summary,research_problem,core_method,key_contributions_json,main_results,limitations,tags_json,ai_analyzed,analysis_status,analysis_error,pdf_diagnostics_json,created_at,updated_at,analysis_schema_version,research_scenario,key_innovations_json,publication_venue,(SELECT v.provider FROM analysis_versions v JOIN active_analyses a ON a.version_id=v.id WHERE a.paper_id=papers.id) FROM papers";
 
 fn map_paper(row: &Row<'_>) -> rusqlite::Result<Paper> {
     let authors: Vec<String> = parse_json(row.get::<_, String>(4)?, 4)?;
@@ -241,6 +247,7 @@ fn map_paper(row: &Row<'_>) -> rusqlite::Result<Paper> {
         year: row.get(5)?,
         abstract_text: row.get(6)?,
         analysis,
+        analysis_provider: row.get(24)?,
         tags,
         analysis_status: row.get(15)?,
         analysis_error: row.get(16)?,
@@ -268,11 +275,10 @@ fn matches_query(paper: &Paper, query: &PaperQuery) -> bool {
         }
     }
     if let Some(tag) = query.tag.as_ref().filter(|value| !value.trim().is_empty()) {
-        if !paper
-            .tags
-            .iter()
-            .any(|value| value.eq_ignore_ascii_case(tag))
-        {
+        if !paper.tags.iter().any(|value| {
+            crate::services::keywords::canonical(value)
+                .eq_ignore_ascii_case(&crate::services::keywords::canonical(tag))
+        }) {
             return false;
         }
     }
@@ -284,6 +290,12 @@ fn matches_query(paper: &Paper, query: &PaperQuery) -> bool {
     else {
         return true;
     };
+    if paper.tags.iter().any(|tag| {
+        crate::services::keywords::canonical(tag)
+            .eq_ignore_ascii_case(&crate::services::keywords::canonical(&text))
+    }) {
+        return true;
+    }
     let analysis = paper.analysis.as_ref();
     [
         paper.title.as_str(),
@@ -362,6 +374,7 @@ mod tests {
             year: Some(2025),
             abstract_text: Some("Local scientific analysis".into()),
             analysis: None,
+            analysis_provider: None,
             tags: vec!["local LLM".into()],
             analysis_status: "not_analyzed".into(),
             analysis_error: None,

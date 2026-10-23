@@ -171,6 +171,7 @@ impl<'state> PaperImportService<'state> {
                 year,
                 abstract_text,
                 analysis: None,
+                analysis_provider: None,
                 tags: Vec::new(),
                 analysis_status: if extracted_text.trim().is_empty() {
                     "failed"

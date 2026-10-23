@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { PaperComparisonResult } from "../../domain/ai/types";
 import type { Paper } from "../../domain/paper/Paper";
 import { CompareIcon } from "../../components/Icons";
@@ -9,12 +10,15 @@ interface Props {
   loading: boolean;
   error?: string;
   requestId?: string;
+  onSave(result:PaperComparisonResult):Promise<void>;
   onClose(): void;
   onCancel(): void;
   onRetry(): void;
 }
 
-export function ComparisonDialog({ papers, result, loading, error, requestId, onClose, onCancel, onRetry }: Props) {
+export function ComparisonDialog({ papers, result, loading, error, requestId, onClose, onCancel, onRetry,onSave }: Props) {
+  const [draft,setDraft]=useState<PaperComparisonResult>();const [saving,setSaving]=useState(false);const [editError,setEditError]=useState<string>();
+  const labels=[ ["common_points","共同点"],["key_differences","关键差异"],["problem_comparison","研究问题"],["scenario_comparison","场景与假设"],["method_comparison","方法对比"],["contribution_comparison","贡献对比"],["results_comparison","实验与结果"],["limitations_comparison","局限与适用条件"],["summary","综合结论"] ] as const;
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !loading) onClose(); }}>
       <section className="comparison-dialog" role="dialog" aria-modal="true" aria-labelledby="comparison-title">
@@ -27,6 +31,7 @@ export function ComparisonDialog({ papers, result, loading, error, requestId, on
           {loading && <InlineTaskProgress id={requestId}/>}
           {loading && <div className="comparison-loading"><span className="large-spinner"/><strong>正在准备并深度对比 {papers.length} 篇论文…</strong><p>自动补齐尚未完成的内容分析，再结合原文证据比较研究差异。本地任务依次执行，可随时取消。</p>{requestId && <code>{requestId}</code>}<button className="button secondary" onClick={onCancel}>取消</button></div>}
           {!loading && error && <div className="comparison-error"><span>!</span><strong>Comparison failed</strong><p>{error}</p><button className="button primary" onClick={onRetry}>Try again</button></div>}
+          {!loading && result && <div><button className="button secondary" onClick={()=>setDraft(draft?undefined:structuredClone(result))}>{draft?"取消编辑":"编辑对比文字"}</button>{editError&&<p role="alert">{editError}</p>}{draft&&<form className="analysis-editor" onSubmit={async e=>{e.preventDefault();setSaving(true);setEditError(undefined);try{await onSave(draft);setDraft(undefined);}catch(e){setEditError(String(e));}finally{setSaving(false);}}}>{labels.map(([key,label])=><label key={key}>{label}<textarea rows={4} value={Array.isArray(draft[key])?(draft[key] as string[]).join("\n"):draft[key] as string} onChange={e=>setDraft({...draft,[key]:Array.isArray(draft[key])?e.target.value.split("\n").filter(Boolean):e.target.value})}/></label>)}<button className="button primary" disabled={saving}>保存对比编辑</button></form>}</div>}
           {!loading && result && <div className="comparison-results">
             <section className="comparison-wide"><h2>共同点</h2><ul>{result.common_points.map((item, index) => <li key={index}>{item}</li>)}</ul></section>
             <section className="comparison-wide differences"><h2>关键差异</h2><ul>{result.key_differences.map((item, index) => <li key={index}>{item}</li>)}</ul></section>

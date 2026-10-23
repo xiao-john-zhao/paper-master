@@ -59,6 +59,14 @@ impl AIRequestRegistry {
             .unwrap_or(false)
     }
 
+    pub fn cancel_all(&self) {
+        if let Ok(requests) = self.requests.lock() {
+            for token in requests.values() {
+                token.cancel();
+            }
+        }
+    }
+
     pub fn remove(&self, request_id: &str) {
         if let Ok(mut requests) = self.requests.lock() {
             requests.remove(request_id);

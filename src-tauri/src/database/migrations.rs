@@ -150,6 +150,25 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (4, MIGRATION_4),
     (5, MIGRATION_5),
     (6, "SELECT 1;"),
+    (
+        7,
+        r#"
+CREATE TABLE analysis_versions (
+ id TEXT PRIMARY KEY NOT NULL,
+ paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+ provider TEXT NOT NULL, model TEXT NOT NULL,
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+ revision INTEGER NOT NULL DEFAULT 0, edited INTEGER NOT NULL DEFAULT 0,
+ result_json TEXT NOT NULL, original_json TEXT
+);
+CREATE INDEX analysis_versions_paper ON analysis_versions(paper_id,created_at);
+CREATE TABLE active_analyses (
+ paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
+ version_id TEXT NOT NULL REFERENCES analysis_versions(id) ON DELETE CASCADE
+);
+"#,
+    ),
+    (8, "SELECT 1;"),
 ];
 
 pub fn run_migrations(connection: &mut Connection) -> AppResult<i64> {
@@ -177,6 +196,12 @@ pub fn run_migrations(connection: &mut Connection) -> AppResult<i64> {
             backfill_abstracts(&transaction)
                 .map_err(|error| migration_error("Could not repair abstracts", error))?;
         }
+        if *version == 7 {
+            crate::database::analysis_versions::backfill(&transaction)?;
+        }
+        if *version == 8 {
+            repair_author_roles(&transaction)?;
+        }
         transaction
             .pragma_update(None, "user_version", version)
             .map_err(|error| migration_error("Could not record migration version", error))?;
@@ -186,6 +211,33 @@ pub fn run_migrations(connection: &mut Connection) -> AppResult<i64> {
         applied = *version;
     }
     Ok(applied)
+}
+
+fn repair_author_roles(connection: &Connection) -> AppResult<()> {
+    let repo = crate::database::paper_repository::SqlitePaperRepository::new(connection);
+    use crate::database::paper_repository::PaperRepository;
+    for paper in repo.list(&Default::default())? {
+        let manual: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM settings WHERE key=?1)",
+                [format!("metadata-edited:{}", paper.id)],
+                |r| r.get(0),
+            )
+            .map_err(|e| migration_error("Read manual metadata marker", e))?;
+        if manual {
+            continue;
+        }
+        let authors = crate::pdf::parser::clean_author_roles(&paper.authors);
+        if authors != paper.authors {
+            connection
+                .execute(
+                    "UPDATE papers SET authors_json=?1 WHERE id=?2",
+                    rusqlite::params![serde_json::to_string(&authors).unwrap(), paper.id],
+                )
+                .map_err(|e| migration_error("Repair author roles", e))?;
+        }
+    }
+    Ok(())
 }
 
 fn backfill_abstracts(connection: &Connection) -> rusqlite::Result<()> {
@@ -260,6 +312,9 @@ mod tests {
     fn migration_repairs_abstract_without_touching_analysis_or_source_path() {
         let mut connection = Connection::open_in_memory().unwrap();
         run_migrations(&mut connection).unwrap();
+        connection
+            .execute_batch("DROP TABLE active_analyses; DROP TABLE analysis_versions;")
+            .unwrap();
         let text = "A Reliable Paper\nAda Lovelace\nAbstract—We propose a robust model.\nIndex Terms—models\nManuscript received 2025.\nAda Lovelace is with Example University.\nI. INTRODUCTION\nBody";
         connection.execute("INSERT INTO papers(id,file_path,file_name,title,extracted_text,abstract_text,ai_summary,created_at,updated_at) VALUES('p1','original.pdf','original.pdf','Title',?1,'polluted abstract','saved summary','now','now')", [text]).unwrap();
         connection.pragma_update(None, "user_version", 5).unwrap();
@@ -282,12 +337,48 @@ mod tests {
     }
 
     #[test]
+    fn membership_repair_preserves_manual_metadata_and_saved_summary() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        run_migrations(&mut connection).unwrap();
+        for id in ["auto", "manual"] {
+            connection.execute("INSERT INTO papers(id,file_path,file_name,title,authors_json,ai_summary,created_at,updated_at) VALUES(?1,?1,?1,'Title','[\"Ada Lovelace\",\"Life\"]','saved summary','now','now')",[id]).unwrap();
+        }
+        connection.execute("INSERT INTO settings(key,value_json,updated_at) VALUES('metadata-edited:manual','true','now')",[]).unwrap();
+        connection.execute_batch("PRAGMA user_version=7").unwrap();
+        run_migrations(&mut connection).unwrap();
+        let read = |id: &str| {
+            connection
+                .query_row(
+                    "SELECT authors_json,ai_summary,file_path FROM papers WHERE id=?1",
+                    [id],
+                    |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, String>(2)?,
+                        ))
+                    },
+                )
+                .unwrap()
+        };
+        assert_eq!(
+            read("auto"),
+            (
+                "[\"Ada Lovelace\"]".into(),
+                "saved summary".into(),
+                "auto".into()
+            )
+        );
+        assert!(read("manual").0.contains("Life"));
+    }
+
+    #[test]
     fn migrations_are_idempotent() {
         let mut connection = Connection::open_in_memory().expect("in-memory database");
-        assert_eq!(run_migrations(&mut connection).expect("first migration"), 6);
+        assert_eq!(run_migrations(&mut connection).expect("first migration"), 8);
         assert_eq!(
             run_migrations(&mut connection).expect("second migration"),
-            6
+            8
         );
         let paper_table: String = connection
             .query_row(
@@ -320,7 +411,7 @@ mod tests {
         connection
             .pragma_update(None, "user_version", 2)
             .expect("version");
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 6);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 8);
         let path: String = connection
             .query_row("SELECT file_path FROM papers WHERE id='p1'", [], |row| {
                 row.get(0)
@@ -343,7 +434,7 @@ mod tests {
             .pragma_update(None, "user_version", 3)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 6);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 8);
         let modules: (String, Option<String>, String) = connection
             .query_row(
                 "SELECT analysis_schema_version,research_scenario,key_innovations_json FROM papers WHERE id='p1'",
@@ -358,6 +449,7 @@ mod tests {
     fn migration_adds_optional_publication_venue_without_losing_papers() {
         let mut connection = Connection::open_in_memory().expect("in-memory database");
         connection.execute_batch(MIGRATION_1).expect("base schema");
+        connection.execute_batch(MIGRATION_4).unwrap();
         connection
             .execute(
                 "INSERT INTO papers(id,file_path,file_name,title,created_at,updated_at) VALUES('p1','paper.pdf','paper.pdf','Legacy paper','now','now')",
@@ -368,7 +460,7 @@ mod tests {
             .pragma_update(None, "user_version", 4)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 6);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 8);
         let venue: Option<String> = connection
             .query_row(
                 "SELECT publication_venue FROM papers WHERE id='p1'",
@@ -383,6 +475,7 @@ mod tests {
     fn migration_backfills_publication_venue_from_existing_text() {
         let mut connection = Connection::open_in_memory().expect("in-memory database");
         connection.execute_batch(MIGRATION_1).expect("base schema");
+        connection.execute_batch(MIGRATION_4).unwrap();
         connection
             .execute(
                 "INSERT INTO papers(id,file_path,file_name,title,extracted_text,created_at,updated_at) VALUES('p1','paper.pdf','paper.pdf','Reliable Systems',?1,'now','now')",
@@ -393,7 +486,7 @@ mod tests {
             .pragma_update(None, "user_version", 4)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 6);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 8);
         let venue: Option<String> = connection
             .query_row(
                 "SELECT publication_venue FROM papers WHERE id='p1'",
@@ -408,6 +501,7 @@ mod tests {
     fn migration_replaces_legacy_header_title_with_detected_paper_title() {
         let mut connection = Connection::open_in_memory().expect("in-memory database");
         connection.execute_batch(MIGRATION_1).expect("base schema");
+        connection.execute_batch(MIGRATION_4).unwrap();
         connection
             .execute(
                 "INSERT INTO papers(id,file_path,file_name,title,extracted_text,created_at,updated_at) VALUES('p1','Reliable Paper Title.pdf','Reliable Paper Title.pdf','123 IEEE JOURNAL, VOL. 1',?1,'now','now')",
@@ -418,7 +512,7 @@ mod tests {
             .pragma_update(None, "user_version", 4)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 6);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 8);
         let title: String = connection
             .query_row("SELECT title FROM papers WHERE id='p1'", [], |row| {
                 row.get(0)

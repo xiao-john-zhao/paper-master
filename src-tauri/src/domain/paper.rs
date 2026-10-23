@@ -48,6 +48,8 @@ pub struct Paper {
     pub abstract_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub analysis: Option<PaperAnalysisResult>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analysis_provider: Option<String>,
     pub tags: Vec<String>,
     pub analysis_status: String,
     #[serde(skip_serializing_if = "Option::is_none")]

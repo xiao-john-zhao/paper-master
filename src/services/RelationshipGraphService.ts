@@ -12,7 +12,8 @@ export class RelationshipGraphService {
     try {
       progressService.update({id,kind:"graph",stage:"读取完整本地论文库",completed:0,total:3,unit:"steps"});
       const papers=await this.papers.list(); await paint();
-      const graph=buildRelationshipGraph(papers,options);
+      const teamLinks=isTauriRuntime() && options.mode!=="keywords" && options.includeTeams!==false ? await this.papers.teamLinks() : [];
+      const graph=buildRelationshipGraph(papers,{...options,teamLinks});
       progressService.update({id,kind:"graph",stage:"共同关键词和共同作者已统计，正在布局",completed:1,total:3,unit:"steps"}); await paint();
       const laidOut=layoutGraph(graph);
       progressService.update({id,kind:"graph",stage:"节点与连线布局完成",completed:3,total:3,unit:"steps"});

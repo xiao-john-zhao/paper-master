@@ -1,3 +1,4 @@
+pub mod analysis_versions;
 pub mod migrations;
 pub mod paper_repository;
 pub mod settings_storage;

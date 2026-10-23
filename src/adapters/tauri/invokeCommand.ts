@@ -10,6 +10,6 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
 }
 
 export function isTauriRuntime() {
-  return "__TAURI_INTERNALS__" in window;
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 

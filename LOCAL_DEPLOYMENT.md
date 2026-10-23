@@ -1,3 +1,8 @@
+# v0.4.0 current deployment
+
+Run `application/paper-master.exe` or `pwsh -File scripts/Start-Local.ps1`. Network access is a saved Settings switch in this same binary. Normal startup does not initialize LM Studio; optional runtime check: `pwsh -File scripts/Start-Local.ps1 -CheckOnly`. Old local/updated executables are archived as fallback copies. Complete release notes: docs/2026-10-24-v0.4.0-unified-archive.md.
+
+
 # 本机部署与使用
 
 本机源码目录：`D:\paper-master\paper-master`。保留迁移包、Git 历史和交接时已有的未提交文档改动。

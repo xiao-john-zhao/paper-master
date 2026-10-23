@@ -1,4 +1,5 @@
 pub mod parser;
+pub mod poppler;
 pub mod sections;
 
 use std::path::Path;

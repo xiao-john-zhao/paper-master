@@ -155,6 +155,7 @@ mod tests {
             year: None,
             abstract_text: Some("Stored abstract".into()),
             analysis: None,
+            analysis_provider: None,
             tags: vec![],
             analysis_status: "not_analyzed".into(),
             analysis_error: None,

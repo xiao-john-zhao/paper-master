@@ -84,7 +84,7 @@ mod tests {
         let papers: Vec<_> = (1..=8).map(|index| {
             let paper = Paper { id: index.to_string(), title: format!("论文{index}"), publication_venue: None,
                 file_path: "fixture.pdf".into(), file_name: "fixture.pdf".into(), authors: vec![], year: None,
-                abstract_text: None, analysis: Some(analysis.clone()), tags: vec!["SHOULD_NOT_BE_COMPARISON_INPUT".into()],
+                abstract_text: None, analysis: Some(analysis.clone()), analysis_provider: None, tags: vec!["SHOULD_NOT_BE_COMPARISON_INPUT".into()],
                 analysis_status: "analyzed".into(), analysis_error: None, pdf_diagnostics: None,
                 created_at: "now".into(), updated_at: "now".into() };
             (paper, format!("ABSTRACT\nPaper{index} evidence about queue scheduling and beamforming.\nINTRODUCTION\n{}\nCONCLUSION\nLimitations need more validation.", "长篇科研正文".repeat(6000)))

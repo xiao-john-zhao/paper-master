@@ -25,6 +25,16 @@ pub struct AppSettings {
     pub privacy_mode: String,
 }
 
+impl AppSettings {
+    pub fn effective_provider(&self) -> &str {
+        if self.ai_provider == "codex" && self.privacy_mode != "codex_online" {
+            "lmstudio"
+        } else {
+            &self.ai_provider
+        }
+    }
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {

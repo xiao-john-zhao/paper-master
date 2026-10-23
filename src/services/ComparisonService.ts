@@ -1,3 +1,4 @@
+import { invokeCommand,isTauriRuntime } from "../adapters/tauri/invokeCommand";
 import type { Paper } from "../domain/paper/Paper";
 import type { PaperComparisonResult } from "../domain/ai/types";
 import type { AIProvider } from "../providers/ai/AIProvider";
@@ -27,7 +28,7 @@ export class ComparisonService {
         if (this.cancelled.has(requestId)) throw new AppError({ code: "AI_CANCELLED", message: "论文对比已取消。" });
         const current = this.repository ? await this.repository.findById(paper.id) : paper;
         if (!current) throw new AppError({ code: "FILE_NOT_FOUND", message: "所选论文已移除。" });
-        if (!current.analysis || current.analysis_status !== "analyzed") {
+        if (!current.analysis || current.analysis_status !== "analyzed" || current.analysis_provider === "extractive") {
           if (!this.analysisService) throw new AppError({ code: "PAPER_NOT_ANALYZED", message: `请先分析《${current.title}》，再执行多篇论文对比。` });
           const preparationId = `${requestId}-prepare-${paper.id}`;
           this.preparing.set(requestId, preparationId);
@@ -42,6 +43,10 @@ export class ComparisonService {
       return { result, requestId };
     } catch (error) { const appError=normalizeAppError(error); progressService.finish(requestId,appError.code === "AI_CANCELLED" ? "cancelled" : "failed",appError.message); throw error; }
     finally { this.preparing.delete(requestId); this.cancelled.delete(requestId); }
+  }
+
+  async saveEdited(requestId:string,result:PaperComparisonResult) {
+    return isTauriRuntime() ? invokeCommand<PaperComparisonResult>("edit_comparison_result",{requestId,result}) : result;
   }
 
   async cancel(requestId: string) {

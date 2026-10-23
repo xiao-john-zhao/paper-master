@@ -94,6 +94,7 @@ mod tests {
             year: None,
             abstract_text: None,
             analysis: None,
+            analysis_provider: None,
             tags: vec![],
             analysis_status: status.into(),
             analysis_error: None,

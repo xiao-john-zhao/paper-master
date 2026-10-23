@@ -27,6 +27,7 @@ pub fn get_app_info(paths: State<'_, AppPaths>, logger: State<'_, AppLogger>) ->
     }
 }
 pub mod ai;
+pub mod analysis_versions;
 pub mod database;
 pub mod diagnostics;
 pub mod graph;

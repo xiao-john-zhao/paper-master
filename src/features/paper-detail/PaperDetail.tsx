@@ -4,7 +4,15 @@ import { formatAuthors, formatNumber } from "../../utils/formatters";
 import type { AuthorContext } from "../../domain/paper/AuthorContext";
 import { InlineTaskProgress } from "../../components/TaskProgress";
 
+import { AnalysisVersions } from "./AnalysisVersions";
+import type { AnalysisVersionsService } from "../../services/AnalysisVersionsService";
+
+import { MetadataEditor,type EditableMetadata } from "./MetadataEditor";
+
 interface Props {
+  onSaveMetadata(metadata:EditableMetadata):Promise<void>;
+  versionsService: AnalysisVersionsService;
+  onChanged(): void;
   paper?: Paper;
   analyzing: boolean;
   onAnalyze(): void;
@@ -55,7 +63,7 @@ function AnalysisContent({ paper }: { paper: Paper }) {
   );
 }
 
-export function PaperDetail({ paper, analyzing, onAnalyze, onCancel, onOpen, onDelete, onRelink, authorContext, authorError, onSelectRelated,requestId }: Props) {
+export function PaperDetail({ paper, analyzing, onAnalyze, onCancel, onOpen, onDelete, onRelink, authorContext, authorError, onSelectRelated,requestId,versionsService,onChanged,onSaveMetadata }: Props) {
   if (!paper) {
     return <section className="detail-empty"><div className="empty-document"><FileIcon/></div><strong>Select a paper</strong><span>Metadata and local AI analysis will appear here.</span></section>;
   }
@@ -76,6 +84,7 @@ export function PaperDetail({ paper, analyzing, onAnalyze, onCancel, onOpen, onD
         {paper.pdf_diagnostics && <div><span>Extracted</span><strong>{formatNumber(paper.pdf_diagnostics.extracted_character_count)} characters · {paper.pdf_diagnostics.page_count} pages</strong></div>}
       </div>
       <div className="detail-scroll">
+        <MetadataEditor key={paper.id} paper={paper} onSave={onSaveMetadata}/>
         <section className="author-information overview-section"><h2>作者与关联论文</h2>
           <dl><dt>全部作者</dt><dd>{(authorContext?.authors ?? paper.authors).join(", ") || "未识别"}</dd><dt>第一作者（署名顺序）</dt><dd>{authorContext?.first_author ?? paper.authors[0] ?? "未识别"}</dd><dt>通信作者</dt><dd>{authorContext?.corresponding_authors.length ? authorContext.corresponding_authors.join(", ") : "原文未识别到明确标注"}</dd></dl>
           {authorContext?.corresponding_evidence.map((quote, i) => <blockquote key={i}>{quote}</blockquote>)}
@@ -83,11 +92,12 @@ export function PaperDetail({ paper, analyzing, onAnalyze, onCancel, onOpen, onD
           {authorContext ? <><h3>同作者 / 潜在同课题组论文（当前完整论文库）</h3>{authorContext.related_papers.length ? authorContext.related_papers.map((related) => <div className="related-paper" key={related.id}><button className="text-button" onClick={() => onSelectRelated(related.id)}>{related.title}</button><small>{related.relationship} · {related.shared_authors.join(", ")}</small><small>{related.evidence}</small></div>) : <p>当前库未找到同署名论文。课题组关系需结合通信作者和机构进一步核实。</p>}</> : !authorError && <p>正在读取作者关系…</p>}
         </section>
         {paper.abstract && <section className="overview-section"><h2>英文摘要 / Abstract</h2><p>{paper.abstract}</p></section>}
-        <div className="section-title-row"><h2>AI Analysis</h2>{paper.analysis && <span className="analysis-version">Schema v{paper.analysis.schema_version}</span>}</div>
+        <div className="section-title-row"><h2>论文整理与分析</h2>{paper.analysis && <span className="analysis-version">Schema v{paper.analysis.schema_version}</span>}</div>
         {analyzing && <InlineTaskProgress id={requestId ?? `analysis-auto-${paper.id}`} fallback="等待资源或正在分析，阶段信息将在服务响应时更新。"/>}
         {paper.analysis_status === "queued" && <p role="status">已加入本地分析队列，等待前面的任务完成。</p>}
         {paper.analysis_status === "analyzing" && <p role="status">所选 AI 服务正在读取和概括论文内容，完成后自动保存。</p>}
         {paper.analysis_error && <p role="alert" className="analysis-error">{paper.analysis_error}</p>}
+        <AnalysisVersions key={paper.id} paper={paper} service={versionsService} onChanged={onChanged}/>
         <AnalysisContent paper={paper}/>
       </div>
     </section>

@@ -31,4 +31,13 @@ describe("source-backed relationship graph",()=>{
     const svg=graphSvg(graph);expect(svg).toContain("A &lt;script&gt; &amp; B");expect(svg).not.toContain("<script>");expect(svg).toContain("非引文网络");expect(svg).toContain("P1");
     expect(buildRelationshipGraph([],{mode:"keywords"}).nodes).toHaveLength(0);
   });
+  it("renders potential-team evidence independently of keyword and author toggles",()=>{
+    const papers=[paper("1",[]),paper("2",[]),paper("3",["Other"])];
+    const teamLinks=[{source:"1",target:"2",evidence:["共同通信作者：Ada；待核实"]}];
+    const graph=buildRelationshipGraph(papers,{mode:"teams",teamLinks,includeAuthors:false});
+    expect(graph.nodes).toHaveLength(2);expect(graph.edges).toHaveLength(1);
+    expect(graph.edges[0].teamEvidence).toEqual(teamLinks[0].evidence);
+    expect(graphSvg(layoutGraph(graph))).toContain('stroke-dasharray="7 5"');
+    expect(buildRelationshipGraph(papers,{mode:"papers",teamLinks,includeTeams:false,includeAuthors:false}).edges).toHaveLength(0);
+  });
 });

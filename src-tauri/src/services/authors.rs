@@ -19,6 +19,63 @@ pub struct RelatedPaper {
     pub evidence: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct TeamLink {
+    pub source: String,
+    pub target: String,
+    pub evidence: Vec<String>,
+}
+pub fn team_links(library: &[(Paper, String)]) -> Vec<TeamLink> {
+    let names: Vec<_> = library
+        .iter()
+        .map(|(paper, text)| {
+            let normalize = |name: &str| {
+                name.split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .to_lowercase()
+            };
+            let authors: std::collections::HashSet<_> =
+                paper.authors.iter().map(|s| normalize(s)).collect();
+            let corresponding: std::collections::HashSet<_> =
+                corresponding_authors(&paper.authors, text)
+                    .0
+                    .iter()
+                    .map(|s| normalize(s))
+                    .collect();
+            (authors, corresponding)
+        })
+        .collect();
+    let mut result = Vec::new();
+    for i in 0..library.len() {
+        for j in i + 1..library.len() {
+            let mut common: Vec<_> = names[i].0.intersection(&names[j].0).cloned().collect();
+            common.sort();
+            let mut corresponding: Vec<_> = names[i].1.intersection(&names[j].1).cloned().collect();
+            corresponding.sort();
+            let evidence = if !corresponding.is_empty() {
+                vec![format!(
+                    "共同通信作者：{}；潜在同课题组，身份及机构待核实。",
+                    corresponding.join(", ")
+                )]
+            } else if common.len() >= 2 {
+                vec![format!(
+                    "至少两位共同署名：{}；潜在合作团队，身份及机构待核实。",
+                    common.join(", ")
+                )]
+            } else {
+                continue;
+            };
+            result.push(TeamLink {
+                source: library[i].0.id.clone(),
+                target: library[j].0.id.clone(),
+                evidence,
+            });
+        }
+    }
+    result
+}
+
 pub fn corresponding_authors(authors: &[String], text: &str) -> (Vec<String>, Vec<String>) {
     let marker = Regex::new(r"(?i)corresponding\s+authors?\s*[:：]?|correspondence\s+(?:to|should be addressed to)\s*[:：]?").unwrap();
     let mut names = Vec::new();
@@ -122,6 +179,34 @@ pub fn build_context(paper: &Paper, text: &str, library: &[(Paper, String)]) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn team_evidence_distinguishes_collaboration_from_one_shared_name() {
+        fn paper(id: &str, names: &[&str]) -> Paper {
+            serde_json::from_value(serde_json::json!({"id":id,"file_path":"f.pdf","file_name":"f.pdf","title":id,"authors":names,"tags":[],"analysis_status":"not_analyzed","created_at":"now","updated_at":"now"})).unwrap()
+        }
+        let library = vec![
+            (
+                paper("a", &["Ada Lovelace", "Alan Turing"]),
+                "Corresponding author: Ada Lovelace.".into(),
+            ),
+            (
+                paper("b", &["Ada Lovelace", "Grace Hopper"]),
+                "Corresponding author: Ada Lovelace.".into(),
+            ),
+            (paper("c", &["Alan Turing"]), String::new()),
+        ];
+        let links = team_links(&library);
+        assert_eq!(links.len(), 1);
+        assert!(links[0].evidence[0].contains("共同通信作者"));
+        let library = vec![
+            (paper("a", &["Ada Lovelace", "Alan Turing"]), String::new()),
+            (paper("b", &["ada lovelace", "Alan Turing"]), String::new()),
+        ];
+        let links = team_links(&library);
+        assert_eq!(links.len(), 1);
+        assert!(links[0].evidence[0].contains("至少两位"));
+    }
+
     #[test]
     fn correspondence_requires_explicit_evidence() {
         let authors = vec!["Ada Lovelace".into(), "Alan Turing".into()];

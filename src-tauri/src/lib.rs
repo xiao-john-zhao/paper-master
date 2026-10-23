@@ -1,4 +1,5 @@
 mod ai;
+pub mod archive_cli;
 mod commands;
 mod config;
 mod database;
@@ -44,16 +45,23 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
+            commands::analysis_versions::list_analysis_versions,
+            commands::analysis_versions::select_analysis_version,
+            commands::analysis_versions::edit_analysis_version,
+            commands::analysis_versions::extract_paper_locally,
+            commands::analysis_versions::restore_analysis_version,
             commands::graph::save_graph_image,
             commands::paper::list_papers,
             commands::paper::search_papers,
             commands::paper::get_paper,
             commands::paper::update_paper,
+            commands::paper::edit_paper_metadata,
             commands::paper::delete_paper,
             commands::paper::paper_exists_by_path,
             commands::paper::open_paper_pdf,
             commands::paper::relink_paper_pdf,
             commands::paper::get_author_context,
+            commands::paper::get_team_links,
             commands::research::search_online_papers,
             commands::research::download_online_paper,
             commands::research::open_ieee_webvpn,
@@ -74,6 +82,7 @@ pub fn run() {
             commands::ai::analyze_paper,
             commands::ai::generate_paper_tags,
             commands::ai::compare_papers,
+            commands::ai::edit_comparison_result,
             commands::ai::cancel_ai_request,
             commands::ai::cancel_paper_analysis,
         ])

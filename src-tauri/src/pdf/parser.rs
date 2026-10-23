@@ -26,7 +26,10 @@ impl DocumentParser for PdfDocumentParser {
             )
             .detail(path.display().to_string()));
         }
-        let pages = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        let pages = if let Some(pages) = super::poppler::extract(path) {
+            pages
+        } else {
+            std::panic::catch_unwind(AssertUnwindSafe(|| {
             pdf_extract::extract_text_by_pages(path)
         }))
         .map_err(|_| {
@@ -42,7 +45,8 @@ impl DocumentParser for PdfDocumentParser {
                 "Text could not be extracted from this PDF.",
             )
             .detail(error.to_string())
-        })?;
+        })?
+        };
         let cleaned_text = clean_text(&pages.join("\n\n"));
         let (sections, detected_sections) = detect_sections(&cleaned_text);
         let metadata = extract_metadata(path, &cleaned_text, sections.abstract_text.clone());
@@ -129,7 +133,26 @@ pub(crate) fn extract_metadata(
         .copied()
         .collect::<Vec<_>>()
         .join(", ");
-    let authors = split_authors(&author_block);
+    let mut authors = split_authors(&author_block);
+    let mut title = title;
+    // Degree theses often put the institution on the cover and the author in the filename.
+    // Accept that name only when it also occurs in the actual cover text.
+    let cover: String = text.chars().take(8000).collect();
+    if cover.contains("学位论文") || cover.contains("MASTER THESIS") {
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        if let Some((name_title, name)) = stem.rsplit_once('_') {
+            if (2..=4).contains(&name.chars().count())
+                && name.chars().all(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
+                && cover.split_whitespace().collect::<String>().contains(name)
+            {
+                authors = vec![name.into()];
+                title = name_title.replace('_', " ");
+            }
+        }
+    }
     DocumentMetadata {
         title,
         publication_venue: publication_venue_from_text(text),
@@ -227,6 +250,16 @@ fn looks_like_publication_header(line: &str) -> bool {
         || lower.contains("issn")
         || lower.contains("copyright")
         || lower.starts_with("arxiv:")
+        || lower.starts_with("chinese journal of")
+        || lower.starts_with("ieee transactions on")
+        || matches!(
+            lower.as_str(),
+            "tsinghua science and technology"
+                | "research article"
+                | "review article"
+                | "open access"
+                | "article"
+        )
         || Regex::new(r"(?i)^\s*\d{1,6}\s+(?:ieee|acm|springer|elsevier)\b")
             .expect("static regex")
             .is_match(line)
@@ -371,7 +404,7 @@ fn is_author_block_boundary(line: &str) -> bool {
 
 fn split_authors(line: &str) -> Vec<String> {
     let without_roles = Regex::new(
-        r"(?i)\b(?:(?:senior|graduate student|student|life)\s+)?member\b|\bfellow\b|\bieee\b",
+        r"(?i)\b(?:(?:senior|graduate student|student|life)\s+)*(?:member|fellow)\b|\bieee\b",
     )
     .expect("static regex")
     .replace_all(line, "");
@@ -394,10 +427,26 @@ fn split_authors(line: &str) -> Vec<String> {
                 && value.len() <= 80
                 && !matches!(
                     value.to_lowercase().as_str(),
-                    "member" | "senior member" | "student member" | "fellow" | "ieee"
+                    "member"
+                        | "senior member"
+                        | "student member"
+                        | "fellow"
+                        | "ieee"
+                        | "life"
+                        | "senior"
+                        | "student"
                 )
         })
         .take(100)
+        .collect()
+}
+
+pub(crate) fn clean_author_roles(authors: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    authors
+        .iter()
+        .flat_map(|name| split_authors(name))
+        .filter(|name| seen.insert(name.to_lowercase()))
         .collect()
 }
 
@@ -430,6 +479,31 @@ pub fn fallback_title(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn life_fellow_and_life_senior_member_are_roles_not_authors() {
+        let authors =
+            split_authors("Ada Lovelace, Life Fellow, IEEE, Alan Turing, Life Senior Member, IEEE");
+        assert_eq!(authors, ["Ada Lovelace", "Alan Turing"]);
+        assert_eq!(
+            clean_author_roles(&["Ada Lovelace".into(), "Life".into(), "Alan Turing".into()]),
+            ["Ada Lovelace", "Alan Turing"]
+        );
+    }
+
+    #[test]
+    fn skips_publisher_cover_and_retains_real_author_block() {
+        let text="Chinese Journal of Electronics\nvol. 33, no. 6\nhttps://doi.org/10.123/example\nRESEARCH ARTICLE\nPerformance Analysis of Spatial Modulation\nAided UAV Communication Systems\nXiangbin YU, Ning LI, and Cuimin PAN\nAbstract: We study communication.\n";
+        let meta = extract_metadata(
+            Path::new(
+                "Performance_Analysis_of_Spatial_Modulation_Aided_UAV_Communication_Systems.pdf",
+            ),
+            text,
+            None,
+        );
+        assert!(meta.title.starts_with("Performance Analysis"));
+        assert_eq!(meta.authors.len(), 3);
+    }
 
     #[test]
     fn cleaning_joins_hyphenated_words_and_limits_blank_lines() {

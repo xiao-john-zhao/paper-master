@@ -32,6 +32,7 @@ export interface Paper {
   year?: number;
   abstract?: string;
   analysis?: PaperAnalysisResult;
+  analysis_provider?: string;
   tags: string[];
   analysis_status: AnalysisStatus;
   analysis_error?: string;
@@ -39,6 +40,8 @@ export interface Paper {
   created_at: string;
   updated_at: string;
 }
+
+export type EditableMetadata = Pick<Paper,"title"|"authors"|"abstract"|"publication_venue"|"year">;
 
 export type LibraryFilter = "all" | "recent" | "analyzed";
 

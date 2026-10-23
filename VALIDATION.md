@@ -1,3 +1,13 @@
+# v0.4.0 verification — 2026-10-24
+
+- Frontend: 21 tests passed; TypeScript/Vite production build passed (149 modules).
+- Backend: 70 passed, 0 failed, 7 ignored; migration 7/8 preservation, IEEE role cleanup/manual metadata protection, versions/edit conflicts, team inference and persisted network gate covered.
+- Full corpus: 439 PDF imports into memory, 439 duplicates on reimport, integrity ok; then actual library archive 436 new + 3 existing, 0 failures. All 439 source SHA-256 values unchanged, foreign_key_check empty.
+- Quality review: 107 missing authors, 32 unmatched keyword records, 18 missing abstracts, 143 unique review records; 722 potential-team links. Full local reports remain under ignored data/validation/.
+- Real Codex sample persisted independently alongside existing results; no summary in diagnostic logs. Qwen initial 600-second timeout was not hidden; after reload without Draft MTP, minimal ordinary completion passed in 2.05 seconds and the structured smoke passed in 63.82 seconds. The initial full local two-paper pipeline remains unverified this round.
+- Release + NSIS build passed. See docs/2026-10-24-v0.4.0-unified-archive.md for commands, boundaries and the initial environment failures.
+
+
 # Progress, typography and relationship graph verification (2026-10-23)
 
 - `pnpm test`: 20 passed across 5 files. New checks cover co-occurrence deduplication, evidence paper IDs, shared-name/keyword edges and filters, graph size limits, deterministic finite layout, escaped full export labels, independent task lifecycles and late-event rejection after cancellation.

@@ -1,6 +1,14 @@
+# v0.4.0 当前入口（2026-10-24）
+
+启动 `application/paper-master.exe` 或 `pwsh -File scripts/Start-Local.ps1`。仅提供一个应用，联网在 Settings 开关中控制并保存；原有 local/updated 文件仅保留为回退备份。支持多模型结果保留/切换、全部整理文字和元数据编辑、同义关键词归一及潜在同团队关系图。
+
+已将 `F:\论文` 的 439 个 PDF 原地引用归档并逐文件校验；全部有文字，439 份原文件 SHA-256 不变。含 143 条待人工核对记录，详见本机 `data/validation/review-needed.md`。本地摘录明确标为“非模型”，完整大模型分析只做了真实样本验证。
+
+完整修改、限制、测试和回退说明：[本次修改记录](docs/2026-10-24-v0.4.0-unified-archive.md)。下文较早日期内容保留为历史背景，当前行为以上述记录为准。
+
 # paper-master
 
-`paper-master` 是一个 Windows 本地优先的研究论文管理桌面应用，使用 Tauri 2、React、TypeScript、Rust 和 SQLite 构建。当前稳定版本为 `v0.3.1`，开发阶段为维护与缺陷修复，下一目标版本为 `v0.3.2`。
+`paper-master` 是一个 Windows 本地优先的研究论文管理桌面应用，使用 Tauri 2、React、TypeScript、Rust 和 SQLite 构建。当前版本为 `v0.4.0`，下一维护目标为 `v0.4.1`。
 
 导入的 PDF 始终保留在原位置；应用不会移动或删除原文件。论文元数据、分析结果和诊断信息保存在本机。项目支持通过本机 LM Studio 服务执行 AI 分析，但 LM Studio 是可选的外部运行时，不属于项目依赖包。
 
@@ -18,7 +26,7 @@
 - 英文摘要在关键词、作者脚注和机构说明之前结束；迁移 6 修复已有摘要。作者、第一作者、通信作者及原文证据独立显示，并列出本地库中同署名及潜在合作团队论文。
 - 学校凭据 TXT 与浏览器资料只保存在当前用户的 `%LOCALAPPDATA%\\paper-master-private\\`，位于工程外；应用和迁移包不携带凭据。联网检索页提供本地 TXT 查看入口。迁移到其他电脑后需单独配置并重新登录。
 
-无需初始化 LM Studio 时可直接启动 `application/paper-master-updated.exe`，或运行 `pwsh -File scripts/Start-Local.ps1 -SkipLocalModel`。本轮仍保持 0.3.1 版本源，不创建发布标签。
+无需初始化 LM Studio 时可直接启动 `application/paper-master.exe`，或运行 `pwsh -File scripts/Start-Local.ps1 -SkipLocalModel`。本轮仍保持 0.3.1 版本源，不创建发布标签。
 
 - 递归导入 PDF/文件夹、重复检测、容错文本提取、元数据回退和逐文件诊断；
 - 首次导入自动进入持久化本地 AI 分析队列，生成中文内容概括；批量任务串行执行，支持取消、失败后重试和重启续跑；

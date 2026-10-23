@@ -1,3 +1,11 @@
+# v0.4.0 notes
+
+- When Codex is selected but networking is disabled, analysis uses local LM Studio. Switch history in the paper result selector; re-analysis adds a version.
+- Stale edits are rejected using a revision number; refresh before retrying. “恢复生成文字” restores the saved pre-edit baseline.
+- Draft MTP plus the local Qwen runtime was present during a 600-second timeout. Reloading without Draft MTP and using a 16,384 context restored ordinary/structured smoke requests. Treat this as a tested recovery combination, not proof of a single root cause. Start-Local.ps1 -CheckOnly disables MTP on a new CLI load.
+- Windows cannot relink a running test EXE. Finish or stop that test before rebuilding the same debug test target; release builds use a separate target.
+
+
 # Debugging
 
 ## Development mode

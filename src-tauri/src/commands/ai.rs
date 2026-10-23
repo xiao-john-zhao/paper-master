@@ -39,7 +39,7 @@ pub async fn check_ai_connection(
         None => load_settings(database.inner())?,
     };
     Ok(providers
-        .get(&settings.ai_provider)?
+        .get(settings.effective_provider())?
         .check_connection(&settings)
         .await)
 }
@@ -55,7 +55,7 @@ pub async fn get_ai_models(
         None => load_settings(database.inner())?,
     };
     providers
-        .get(&settings.ai_provider)?
+        .get(settings.effective_provider())?
         .get_models(&settings)
         .await
 }
@@ -70,7 +70,7 @@ pub async fn load_ai_model(
         Some(value) => value,
         None => load_settings(database.inner())?,
     };
-    let provider = providers.get(&settings.ai_provider)?;
+    let provider = providers.get(settings.effective_provider())?;
     let loaded_model = provider.load_model(&settings).await?;
     let mut connection = provider.check_connection(&settings).await;
     if !connection.loaded_models.contains(&loaded_model) {
@@ -126,7 +126,17 @@ pub(crate) async fn run_analysis(
             if let Some(paper) =
                 SqlitePaperRepository::new(&connection).find_by_id(&request.paper_id)?
             {
-                if paper.analysis_status == "analyzed" {
+                let settings = SqliteSettingsStorage::new(&connection).get()?;
+                let has_model = crate::database::analysis_versions::list(&connection, &paper.id)?
+                    .iter()
+                    .any(|v| {
+                        v.active
+                            && v.provider == settings.effective_provider()
+                            && (settings.effective_provider() != "lmstudio"
+                                || settings.model.is_empty()
+                                || v.model == settings.model)
+                    });
+                if paper.analysis_status == "analyzed" && has_model {
                     if let Some(analysis) = paper.analysis {
                         return Ok(analysis);
                     }
@@ -240,7 +250,7 @@ async fn analyze_inner(
         "Structured AI request was built",
         Some(input.chars().count()),
     );
-    let provider = providers.get(&settings.ai_provider)?;
+    let provider = providers.get(settings.effective_provider())?;
     paper.analysis_status = "analyzing".to_string();
     paper.analysis_error = None;
     paper.updated_at = Utc::now().to_rfc3339();
@@ -352,14 +362,20 @@ async fn analyze_inner(
             parse_event.retry_count = Some(response.retry_count);
             logger.log(parse_event);
 
-            paper.analysis = Some(response.value.clone());
+            let connection = database.connection()?;
+            let saved_version = crate::database::analysis_versions::append(
+                &connection,
+                &paper.id,
+                provider.id(),
+                response.model.as_deref().unwrap_or(&settings.model),
+                &response.value,
+            )?;
+            drop(connection);
+            paper.analysis = Some(saved_version.result.clone());
             paper.tags = response.value.tags.clone();
             paper.analysis_status = "analyzed".to_string();
             paper.analysis_error = None;
             paper.updated_at = Utc::now().to_rfc3339();
-            let connection = database.connection()?;
-            SqlitePaperRepository::new(&connection).update(&paper)?;
-            drop(connection);
             let mut save_event = LogEvent::info(
                 "paper.repository",
                 "save_analysis",
@@ -398,14 +414,20 @@ async fn analyze_inner(
             event.duration_ms = Some(started.elapsed().as_millis());
             event.stage = Some("ANALYSIS_COMPLETED".into());
             logger.log(event);
-            Ok(response.value)
+            Ok(saved_version.result)
         }
         Err(error) => {
             paper.analysis_status = "failed".to_string();
             paper.analysis_error = Some(error.message.clone());
             paper.updated_at = Utc::now().to_rfc3339();
             if let Ok(connection) = database.connection() {
-                let _ = SqlitePaperRepository::new(&connection).update(&paper);
+                let repository = SqlitePaperRepository::new(&connection);
+                if let Ok(Some(mut current)) = repository.find_by_id(&paper.id) {
+                    current.analysis_status = "failed".into();
+                    current.analysis_error = Some(error.message.clone());
+                    current.updated_at = Utc::now().to_rfc3339();
+                    let _ = repository.update(&current);
+                }
             }
             record_operation(
                 database,
@@ -434,10 +456,7 @@ async fn analyze_inner(
                 LogLevel::Error,
                 "ai.provider",
                 "analyze",
-                error
-                    .detail
-                    .clone()
-                    .unwrap_or_else(|| error.message.clone()),
+                "AI analysis failed; see the error code and stage.",
             );
             event.error_code = Some(error.code_string().to_string());
             event.request_id = Some(request.request_id.clone());
@@ -498,7 +517,7 @@ pub async fn generate_paper_tags(
         let mut input = PaperAnalysisInputBuilder::new(paper_budget).build(&paper, &text)?;
         input.push_str(&managed_tags);
         providers
-            .get(&settings.ai_provider)?
+            .get(settings.effective_provider())?
             .generate_tags(&input, &settings, token)
             .await
     }
@@ -580,7 +599,7 @@ pub(crate) async fn compare_inner(
         (settings, papers)
     };
     let input = build_comparison_input(&papers, settings.max_analysis_input_characters)?;
-    let provider = providers.get(&settings.ai_provider)?;
+    let provider = providers.get(settings.effective_provider())?;
     record_operation(
         database,
         &request.request_id,
@@ -633,6 +652,18 @@ pub(crate) async fn compare_inner(
                 attach_response_diagnostics(&mut event, diagnostics);
             }
             logger.log(event);
+            let report = serde_json::json!({"paper_ids":request.paper_ids,"provider":provider.id(),"model":response.model,"original":response.value,"current":response.value});
+            let connection = database.connection()?;
+            connection
+                .execute(
+                    "INSERT INTO settings(key,value_json,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at",
+                    rusqlite::params![
+                        format!("comparison-report:{}", request.request_id),
+                        report.to_string(),
+                        Utc::now().to_rfc3339()
+                    ],
+                )
+                .map_err(|_| AppError::new(ErrorCode::DatabaseWriteFailed, "对比结果无法保存。"))?;
             Ok(response.value)
         }
         Err(error) => {
@@ -647,10 +678,7 @@ pub(crate) async fn compare_inner(
                 LogLevel::Error,
                 "ai.provider",
                 "compare",
-                error
-                    .detail
-                    .clone()
-                    .unwrap_or_else(|| error.message.clone()),
+                "AI analysis failed; see the error code and stage.",
             );
             event.error_code = Some(error.code_string().to_string());
             event.request_id = Some(request.request_id.clone());
@@ -868,6 +896,7 @@ mod tests {
             year: None,
             abstract_text: None,
             analysis: None,
+            analysis_provider: None,
             tags: tags.iter().map(|tag| (*tag).to_string()).collect(),
             analysis_status: "not_analyzed".into(),
             analysis_error: None,
@@ -876,4 +905,42 @@ mod tests {
             updated_at: "now".into(),
         }
     }
+}
+
+#[tauri::command]
+pub fn edit_comparison_result(
+    database: State<'_, Database>,
+    request_id: String,
+    mut result: PaperComparisonResult,
+) -> AppResult<PaperComparisonResult> {
+    if serde_json::to_vec(&result).map_or(true, |s| s.len() > 300000)
+        || result.schema_version != "2"
+    {
+        return Err(AppError::new(
+            ErrorCode::AiSchemaValidationFailed,
+            "对比内容过长或格式无效。",
+        ));
+    }
+    let connection = database.connection()?;
+    let key = format!("comparison-report:{request_id}");
+    let json: String = connection
+        .query_row(
+            "SELECT value_json FROM settings WHERE key=?1",
+            [&key],
+            |r| r.get(0),
+        )
+        .map_err(|_| AppError::new(ErrorCode::FileNotFound, "请先生成对比结果。"))?;
+    let mut report: serde_json::Value = serde_json::from_str(&json)
+        .map_err(|_| AppError::new(ErrorCode::DatabaseReadFailed, "对比记录无效。"))?;
+    let original: PaperComparisonResult = serde_json::from_value(report["original"].clone())
+        .map_err(|_| AppError::new(ErrorCode::DatabaseReadFailed, "原始对比记录无效。"))?;
+    result.evidence = original.evidence;
+    report["current"] = serde_json::to_value(&result).unwrap();
+    connection
+        .execute(
+            "UPDATE settings SET value_json=?1,updated_at=?2 WHERE key=?3",
+            rusqlite::params![report.to_string(), Utc::now().to_rfc3339(), key],
+        )
+        .map_err(|_| AppError::new(ErrorCode::DatabaseWriteFailed, "对比编辑保存失败。"))?;
+    Ok(result)
 }

@@ -14,10 +14,15 @@ export class PaperService {
   }
 
   get(id: string) { return this.repository.findById(id); }
+  async editMetadata(id:string,metadata:import("../domain/paper/Paper").EditableMetadata) {
+    if (typeof window!=="undefined" && "__TAURI_INTERNALS__" in window) return invokeCommand<Paper>("edit_paper_metadata",{id,metadata});
+    const paper=await this.get(id);if(!paper)throw new Error("论文不存在。");return this.repository.update({...paper,...metadata,updated_at:new Date().toISOString()});
+  }
   save(paper: Paper) { return this.repository.update(paper); }
   remove(id: string) { return this.repository.delete(id); }
   openPdf(id: string) { return invokeCommand<void>("open_paper_pdf", { id }); }
   relinkPdf(id: string, path: string) { return invokeCommand<Paper>("relink_paper_pdf", { id, path }); }
+  teamLinks() { return invokeCommand<import("../domain/paper/RelationshipGraph").TeamLink[]>("get_team_links"); }
   authorContext(id: string) { return invokeCommand<AuthorContext>("get_author_context", { id }); }
 
   async importPaths(paths: string[], operationId = createOperationId("import")): Promise<ImportSummary> {

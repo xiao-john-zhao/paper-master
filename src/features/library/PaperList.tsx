@@ -12,6 +12,7 @@ interface Props {
 }
 
 function Status({ paper }: { paper: Paper }) {
+  if (paper.analysis_provider === "extractive") return <span className="analysis-status pending">本地摘录 · 待归纳</span>;
   if (paper.analysis_status === "analyzed") return <span className="analysis-status done"><span>✓</span> AI analyzed</span>;
   if (paper.analysis_status === "analyzing") return <span className="analysis-status running"><span className="mini-spinner"/> Analyzing</span>;
   if (paper.analysis_status === "queued") return <span className="analysis-status pending">等待本地分析</span>;

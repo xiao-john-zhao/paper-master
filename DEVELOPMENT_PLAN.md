@@ -1,3 +1,8 @@
+# Current release: v0.4.0 (2026-10-24)
+
+Next maintenance target: v0.4.1. Unified application/network gate, multi-model results/editing, canonical keywords, candidate-team graph and full local-corpus archive are implemented. Follow-up quality work: improve metadata extraction for the 143 flagged PDF records, extend reviewed vocabulary, and revalidate the complete local-model pipeline after runtime recovery. Historical accepted scopes follow below.
+
+
 # Development plan
 
 - Current Version: `v0.3.1`

@@ -61,6 +61,21 @@ fn classify_heading(line: &str) -> Option<(SectionKind, String)> {
     if trimmed.is_empty() {
         return None;
     }
+    static CHINESE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let chinese = CHINESE.get_or_init(|| Regex::new(r"^(?:(?:第[一二三四五六七八九十0-9]+[章节]|[0-9]+[.、]?)\s*)?(摘\s*要|引\s*言|绪\s*论|结\s*论|总\s*结)\s*[：:—–-]?\s*(.*)$").unwrap());
+    if let Some(capture) = chinese.captures(trimmed) {
+        let heading = capture[1].split_whitespace().collect::<String>();
+        let kind = match heading.as_str() {
+            "摘要" => SectionKind::Abstract,
+            "引言" | "绪论" => SectionKind::Introduction,
+            _ => SectionKind::Conclusion,
+        };
+        let inline = capture[2].trim();
+        // Avoid treating ordinary narrative sentences as section headings.
+        if kind == SectionKind::Abstract || inline.is_empty() {
+            return Some((kind, inline.into()));
+        }
+    }
     let lowercase = trimmed.to_lowercase();
     for (label, kind) in [
         ("abstract", SectionKind::Abstract),
@@ -102,9 +117,15 @@ pub fn clean_abstract(text: &str) -> String {
     let boundary = Regex::new(r"(?i)^(?:index\s*terms|key\s*words|keywords|(?:[IVX0-9]+[.\s]+)?introduction|received\b|manuscript\b|accepted\b|date of (?:publication|current version)|digital object identifier|corresponding authors?\b|correspondence\b|©|copyright\b|authorized licensed use\b|references\b)").unwrap();
     let affiliation = Regex::new(r"(?i)(?:\bare (?:all )?with\b|\bis with\b|\bdepartment of\b|\bschool of\b|\b(e-?mail)\s*:|\buniversity\b.*@)").unwrap();
     let inline_end = Regex::new(r"(?i)\b(?:Index\s*Terms|Key\s*words|Keywords)\s*[—–:\-]").unwrap();
+    let chinese_boundary =
+        Regex::new(r"^(关\s*键\s*[词字]|中图分类号|文献标识码|收稿日期|通信作者|通讯作者)")
+            .unwrap();
     let mut result = Vec::new();
     for line in text.lines() {
         let line = line.trim();
+        if chinese_boundary.is_match(line) {
+            break;
+        }
         if boundary.is_match(line) || affiliation.is_match(line) {
             break;
         }
@@ -127,6 +148,16 @@ pub fn clean_abstract(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extracts_chinese_abstract_and_stops_before_keywords() {
+        let (sections,_)=detect_sections("标题\n摘 要：提出通感一体化方法。\n关键词：无人机；通信\n1 引言\n背景\n5 结论\n主要结果。");
+        assert_eq!(
+            sections.abstract_text.as_deref(),
+            Some("提出通感一体化方法。")
+        );
+        assert_eq!(sections.conclusion.as_deref(), Some("主要结果。"));
+    }
 
     #[test]
     fn detects_ieee_and_inline_headings_case_insensitively() {

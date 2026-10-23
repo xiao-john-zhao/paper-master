@@ -21,7 +21,7 @@ try {
     if ($NoInstaller) { pnpm tauri build --ci --no-bundle -- --locked }
     else { pnpm tauri build --ci -- --locked }
     if ($LASTEXITCODE -ne 0) { throw '桌面应用构建失败。' }
-    Copy-Item -LiteralPath (Join-Path $projectRoot 'src-tauri\target\release\paper-master.exe') -Destination (Join-Path $projectRoot 'application\paper-master-updated.exe')
-    Write-Host '本机应用已生成：application\paper-master-updated.exe'
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'src-tauri\target\release\paper-master.exe') -Destination (Join-Path $projectRoot 'application\paper-master.exe')
+    Write-Host '本机应用已生成：application\paper-master.exe'
 }
 finally { Pop-Location }
