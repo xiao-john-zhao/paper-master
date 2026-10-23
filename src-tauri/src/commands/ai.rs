@@ -1,3 +1,4 @@
+use crate::services::progress::TaskProgress;
 use chrono::Utc;
 use std::{
     collections::{HashMap, HashSet},
@@ -7,7 +8,8 @@ use tauri::State;
 
 use crate::{
     ai::{
-        input_builder::PaperAnalysisInputBuilder, registry::AIRequestRegistry, AIProviderRegistry,
+        comparison_input::build_comparison_input, input_builder::PaperAnalysisInputBuilder,
+        registry::AIRequestRegistry, AIProviderRegistry,
     },
     database::{
         paper_repository::{PaperRepository, SqlitePaperRepository},
@@ -75,7 +77,12 @@ pub async fn load_ai_model(
         connection.loaded_models.push(loaded_model);
     }
     connection.state = "connected".into();
-    connection.message = "所选模型已成功加载，LM Studio 可以开始分析。".into();
+    connection.message = if settings.ai_provider == "codex" {
+        "Codex CLI 登录状态已检查。"
+    } else {
+        "所选模型已成功加载，可以开始分析。"
+    }
+    .into();
     Ok(connection)
 }
 
@@ -87,16 +94,88 @@ pub async fn analyze_paper(
     requests: State<'_, AIRequestRegistry>,
     request: AnalysisRequest,
 ) -> AppResult<PaperAnalysisResult> {
-    let token = requests.register(&request.request_id);
-    let result = analyze_inner(
+    run_analysis(
         database.inner(),
         logger.inner(),
         providers.inner(),
+        requests.inner(),
         &request,
-        token,
+        false,
     )
+    .await
+}
+
+pub(crate) async fn run_analysis(
+    database: &Database,
+    logger: &AppLogger,
+    providers: &AIProviderRegistry,
+    requests: &AIRequestRegistry,
+    request: &AnalysisRequest,
+    queued_only: bool,
+) -> AppResult<PaperAnalysisResult> {
+    let token = requests.register(&request.request_id);
+    requests.report(TaskProgress::running(
+        &request.request_id,
+        "analysis",
+        "等待分析资源",
+    ));
+    let result = async {
+        let _permit = requests.acquire(&token).await?;
+        if request.ensure_only {
+            let connection = database.connection()?;
+            if let Some(paper) =
+                SqlitePaperRepository::new(&connection).find_by_id(&request.paper_id)?
+            {
+                if paper.analysis_status == "analyzed" {
+                    if let Some(analysis) = paper.analysis {
+                        return Ok(analysis);
+                    }
+                }
+            }
+        }
+        if queued_only {
+            let connection = database.connection()?;
+            let current = SqlitePaperRepository::new(&connection).find_by_id(&request.paper_id)?;
+            if !current.is_some_and(|paper| paper.analysis_status == "queued") {
+                return Err(AppError::new(
+                    ErrorCode::AiCancelled,
+                    "自动分析任务已取消或已处理。",
+                ));
+            }
+        }
+        analyze_inner(database, logger, providers, requests, request, token).await
+    }
     .await;
     requests.remove(&request.request_id);
+    match &result {
+        Ok(_) => requests.report(
+            TaskProgress::running(&request.request_id, "analysis", "分析完成并已保存")
+                .counts(4, Some(4), "steps")
+                .finish("completed"),
+        ),
+        Err(error) => requests.report(
+            TaskProgress::running(&request.request_id, "analysis", &error.message).finish(
+                if matches!(error.code, ErrorCode::AiCancelled) {
+                    "cancelled"
+                } else {
+                    "failed"
+                },
+            ),
+        ),
+    }
+    if let Err(error) = &result {
+        // Includes preparation/model-discovery failures, before inference has started.
+        let connection = database.connection()?;
+        let repository = SqlitePaperRepository::new(&connection);
+        if let Some(mut paper) = repository.find_by_id(&request.paper_id)? {
+            if !queued_only || matches!(paper.analysis_status.as_str(), "queued" | "analyzing") {
+                paper.analysis_status = "failed".into();
+                paper.analysis_error = Some(error.message.clone());
+                paper.updated_at = Utc::now().to_rfc3339();
+                repository.update(&paper)?;
+            }
+        }
+    }
     result
 }
 
@@ -104,10 +183,18 @@ async fn analyze_inner(
     database: &Database,
     logger: &AppLogger,
     providers: &AIProviderRegistry,
+    requests: &AIRequestRegistry,
     request: &AnalysisRequest,
     token: tokio_util::sync::CancellationToken,
 ) -> AppResult<PaperAnalysisResult> {
     let started = Instant::now();
+    requests.report(
+        TaskProgress::running(&request.request_id, "analysis", "读取原文与构建分析材料").counts(
+            0,
+            Some(4),
+            "steps",
+        ),
+    );
     let (settings, mut paper, extracted_text, managed_tags) = {
         let connection = database.connection()?;
         let repository = SqlitePaperRepository::new(&connection);
@@ -131,6 +218,14 @@ async fn analyze_inner(
         .saturating_sub(managed_tags.chars().count());
     let mut input = PaperAnalysisInputBuilder::new(paper_budget).build(&paper, &extracted_text)?;
     input.push_str(&managed_tags);
+    requests.report(
+        TaskProgress::running(
+            &request.request_id,
+            "analysis",
+            "材料已准备，正在请求所选 AI 服务",
+        )
+        .counts(1, Some(4), "steps"),
+    );
     log_pipeline_stage(
         logger,
         &request.request_id,
@@ -172,13 +267,35 @@ async fn analyze_inner(
     start.stage = Some("REQUEST_SENT".into());
     logger.log(start);
 
-    match provider.analyze_paper(&input, &settings, token).await {
+    requests.report(
+        TaskProgress::running(
+            &request.request_id,
+            "analysis",
+            "模型正在阅读与总结（当前阶段耗时不定）",
+        )
+        .counts(2, Some(4), "steps"),
+    );
+
+    let response = tokio::select! {
+        biased;
+        _ = token.cancelled() => Err(AppError::new(ErrorCode::AiCancelled, "AI 分析已取消。")),
+        response = provider.analyze_paper(&input, &settings, token.clone()) => response,
+    };
+    match response {
         Ok(response) => {
+            requests.report(
+                TaskProgress::running(
+                    &request.request_id,
+                    "analysis",
+                    "结构和证据已校验，正在保存结果",
+                )
+                .counts(3, Some(4), "steps"),
+            );
             let mut transport_event = LogEvent::info(
-                if provider.id() == "lmstudio" {
-                    "ai.lmstudio"
-                } else {
-                    "ai.mock"
+                match provider.id() {
+                    "lmstudio" => "ai.lmstudio",
+                    "codex" => "ai.codex",
+                    _ => "ai.mock",
                 },
                 "response",
                 "AI provider response received",
@@ -204,10 +321,10 @@ async fn analyze_inner(
             logger.log(transport_event);
 
             let mut extraction_event = LogEvent::info(
-                if provider.id() == "lmstudio" {
-                    "ai.lmstudio"
-                } else {
-                    "ai.mock"
+                match provider.id() {
+                    "lmstudio" => "ai.lmstudio",
+                    "codex" => "ai.codex",
+                    _ => "ai.mock",
                 },
                 "extract_final_content",
                 "Final AI response content extracted",
@@ -399,20 +516,49 @@ pub async fn compare_papers(
     request: CompareRequest,
 ) -> AppResult<PaperComparisonResult> {
     validate_compare_paper_ids(&request.paper_ids)?;
+    requests.report(TaskProgress::running(
+        &request.request_id,
+        "compare",
+        "等待资源并准备比较材料",
+    ));
     let token = requests.register(&request.request_id);
-    let result = compare_inner(
-        database.inner(),
-        logger.inner(),
-        providers.inner(),
-        &request,
-        token,
-    )
+    let result = async {
+        let _permit = requests.acquire(&token).await?;
+        requests.report(TaskProgress::running(
+            &request.request_id,
+            "compare",
+            "模型正在比较问题、场景、方法和原文证据",
+        ));
+        compare_inner(
+            database.inner(),
+            logger.inner(),
+            providers.inner(),
+            &request,
+            token,
+        )
+        .await
+    }
     .await;
     requests.remove(&request.request_id);
+    match &result {
+        Ok(_) => requests.report(
+            TaskProgress::running(&request.request_id, "compare", "比较完成，原文证据已校验")
+                .finish("completed"),
+        ),
+        Err(error) => requests.report(
+            TaskProgress::running(&request.request_id, "compare", &error.message).finish(
+                if matches!(error.code, ErrorCode::AiCancelled) {
+                    "cancelled"
+                } else {
+                    "failed"
+                },
+            ),
+        ),
+    }
     result
 }
 
-async fn compare_inner(
+pub(crate) async fn compare_inner(
     database: &Database,
     logger: &AppLogger,
     providers: &AIProviderRegistry,
@@ -426,36 +572,14 @@ async fn compare_inner(
         let settings = SqliteSettingsStorage::new(&connection).get()?;
         let mut papers = Vec::with_capacity(request.paper_ids.len());
         for paper_id in &request.paper_ids {
-            papers.push(repository.find_by_id(paper_id)?.ok_or_else(|| {
+            let paper = repository.find_by_id(paper_id)?.ok_or_else(|| {
                 AppError::new(ErrorCode::FileNotFound, "所选论文已不在本地文献库中。")
-            })?);
+            })?;
+            papers.push((paper, repository.extracted_text(paper_id)?));
         }
         (settings, papers)
     };
-    let structured_papers = papers
-        .iter()
-        .enumerate()
-        .map(|(index, paper)| {
-            let analysis = paper.analysis.as_ref().ok_or_else(|| {
-                AppError::new(
-                    ErrorCode::PaperNotAnalyzed,
-                    format!("请先分析《{}》，再执行多篇论文对比。", paper.title),
-                )
-            })?;
-            Ok(serde_json::json!({
-                "paper_number": index + 1,
-                "title": paper.title,
-                "analysis": analysis,
-            }))
-        })
-        .collect::<AppResult<Vec<_>>>()?;
-    let input = serde_json::to_string_pretty(&serde_json::json!({
-        "papers": structured_papers
-    }))
-    .map_err(|error| {
-        AppError::new(ErrorCode::Internal, "无法准备已保存的论文分析用于对比。")
-            .detail(error.to_string())
-    })?;
+    let input = build_comparison_input(&papers, settings.max_analysis_input_characters)?;
     let provider = providers.get(&settings.ai_provider)?;
     record_operation(
         database,
@@ -474,7 +598,12 @@ async fn compare_inner(
     });
     start.input_character_count = Some(input.chars().count());
     logger.log(start);
-    match provider.compare_papers(&input, &settings, token).await {
+    let response = tokio::select! {
+        biased;
+        _ = token.cancelled() => Err(AppError::new(ErrorCode::AiCancelled, "论文对比已取消。")),
+        response = provider.compare_papers(&input, &settings, token.clone()) => response,
+    };
+    match response {
         Ok(response) => {
             record_operation(
                 database,
@@ -550,6 +679,25 @@ async fn compare_inner(
 #[tauri::command]
 pub fn cancel_ai_request(requests: State<'_, AIRequestRegistry>, request_id: String) -> bool {
     requests.cancel(&request_id)
+}
+
+#[tauri::command]
+pub fn cancel_paper_analysis(
+    database: State<'_, Database>,
+    requests: State<'_, AIRequestRegistry>,
+    paper_id: String,
+) -> AppResult<()> {
+    requests.cancel(&format!("analysis-auto-{paper_id}"));
+    let connection = database.connection()?;
+    let repository = SqlitePaperRepository::new(&connection);
+    if let Some(mut paper) = repository.find_by_id(&paper_id)? {
+        if matches!(paper.analysis_status.as_str(), "queued" | "analyzing") {
+            paper.analysis_status = "failed".into();
+            paper.analysis_error = Some("自动分析已取消，可点击重新分析。".into());
+            repository.update(&paper)?;
+        }
+    }
+    Ok(())
 }
 
 fn load_settings(database: &Database) -> AppResult<AppSettings> {

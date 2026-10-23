@@ -1,3 +1,5 @@
+pub mod codex;
+pub mod comparison_input;
 pub mod input_builder;
 pub mod lm_studio;
 pub mod mock;
@@ -64,6 +66,7 @@ impl AIProviderRegistry {
         let mut providers: HashMap<&'static str, Arc<dyn AIProvider>> = HashMap::new();
         providers.insert("lmstudio", Arc::new(lm_studio::LMStudioProvider::default()));
         providers.insert("mock", Arc::new(mock::MockAIProvider));
+        providers.insert("codex", Arc::new(codex::CodexProvider));
         Self { providers }
     }
 

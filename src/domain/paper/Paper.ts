@@ -1,4 +1,4 @@
-export type AnalysisStatus = "not_analyzed" | "analyzing" | "analyzed" | "failed";
+export type AnalysisStatus = "not_analyzed" | "queued" | "analyzing" | "analyzed" | "failed";
 
 export interface PdfDiagnostics {
   page_count: number;

@@ -31,7 +31,7 @@ impl PaperAnalysisInputBuilder {
                 &mut output,
                 "ABSTRACT",
                 abstract_text,
-                self.max_characters * 20 / 100,
+                self.max_characters * 15 / 100,
                 self.max_characters,
             );
         }
@@ -40,7 +40,7 @@ impl PaperAnalysisInputBuilder {
                 &mut output,
                 "INTRODUCTION",
                 introduction,
-                self.max_characters * 30 / 100,
+                self.max_characters * 15 / 100,
                 self.max_characters,
             );
         }
@@ -49,9 +49,36 @@ impl PaperAnalysisInputBuilder {
                 &mut output,
                 "CONCLUSION",
                 conclusion,
-                self.max_characters * 20 / 100,
+                self.max_characters * 15 / 100,
                 self.max_characters,
             );
+        }
+        for (heading, keywords) in [
+            (
+                "METHOD EVIDENCE",
+                &["method", "proposed", "system model", "方法", "系统模型"][..],
+            ),
+            (
+                "RESULT EVIDENCE",
+                &[
+                    "experiment",
+                    "numerical",
+                    "simulation",
+                    "evaluation",
+                    "实验",
+                    "仿真",
+                ][..],
+            ),
+        ] {
+            if let Some(start) = evidence_section_start(extracted_text, keywords) {
+                push_section(
+                    &mut output,
+                    heading,
+                    &extracted_text[start..],
+                    self.max_characters * 20 / 100,
+                    self.max_characters,
+                );
+            }
         }
         if output.chars().count() < self.max_characters {
             push_section(
@@ -64,6 +91,28 @@ impl PaperAnalysisInputBuilder {
         }
         Ok(output.chars().take(self.max_characters).collect())
     }
+}
+
+fn evidence_section_start(text: &str, keywords: &[&str]) -> Option<usize> {
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let heading = line.trim();
+        let lower = heading.to_lowercase();
+        // Prefer short numbered or uppercase section headings over prose mentions.
+        if heading.len() < 120
+            && heading.len() > 3
+            && (heading
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_digit() || matches!(c, 'I' | 'V' | 'X'))
+                || heading == heading.to_uppercase())
+            && keywords.iter().any(|word| lower.contains(word))
+        {
+            return Some(offset);
+        }
+        offset += line.len();
+    }
+    None
 }
 
 fn push_section(

@@ -8,6 +8,12 @@ use crate::config::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub ai_provider: String,
+    #[serde(default = "default_auto_analyze")]
+    pub auto_analyze_on_import: bool,
+    #[serde(default = "default_reasoning_effort")]
+    pub reasoning_effort: String,
+    #[serde(default = "default_context_length")]
+    pub model_context_length: u32,
     pub base_url: String,
     pub model: String,
     pub temperature: f32,
@@ -23,6 +29,9 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             ai_provider: "lmstudio".to_string(),
+            auto_analyze_on_import: true,
+            reasoning_effort: default_reasoning_effort(),
+            model_context_length: default_context_length(),
             base_url: DEFAULT_LM_STUDIO_URL.to_string(),
             model: String::new(),
             temperature: DEFAULT_TEMPERATURE,
@@ -42,4 +51,15 @@ impl Default for AppSettings {
 
 fn default_max_output_tokens() -> u32 {
     DEFAULT_MAX_OUTPUT_TOKENS
+}
+
+fn default_auto_analyze() -> bool {
+    true
+}
+fn default_reasoning_effort() -> String {
+    "none".into()
+}
+
+fn default_context_length() -> u32 {
+    24_576
 }

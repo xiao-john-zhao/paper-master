@@ -1,0 +1,132 @@
+# Codex 跨电脑接管说明
+
+## 进度、排版与关系图（2026-10-23 后续增强）
+
+新增任务进度服务、原生事件与全局任务中心，覆盖导入/自动与手动分析/对比/检索/下载/设置/绘图/导出。总量未知必须保留不定进度，不伪造模型 token 百分比。导入已转入 blocking worker，并有重复/回退计数回归测试。关系图模块分为 domain 的统计/布局、service 的读取/导出和 page 的交互；只使用本地已有标签及署名，不能将边解释为引文或确定同组。新增 `save_graph_image` Rust 命令和本地 blob 图片 CSP 支持；导出仅允许 PNG/SVG。
+
+字号和留白已调整。前端 20 项、后端 60 项测试通过（7 项外部实时测试仍 ignored），生产构建和 NSIS 打包通过；最新基线见 VALIDATION.md 顶部。MSVC `build.rs` 的 Common Controls v6 manifest dependency 用于解决引入 native save dialog 后的测试程序启动异常，不应移除。浏览器预览的默认内存设置需使用 Mock，避免初始化后误调用桌面 IPC。生成产物仍使用 `application/paper-master-updated.exe`，版本源保持 0.3.1。
+
+## PDF、Codex 与文献信息增强（2026-10-23）
+
+保留全部已有工作树改动。新增后端 PDF 打开/重新关联、Codex provider、IEEE 检索/公开下载、无 IPC 的私有 WebVPN 窗口、作者信息和关联论文、摘要迁移 6。默认仍为本地分析，Codex 功能需 Settings 中明确启用联网授权。最新测试结果见 VALIDATION.md；学校订阅无人值守下载未通过完整端到端验证，必须保留“试验”标识及“问题清单”说明。真实账号密码只在用户 LOCALAPPDATA 的独立私有 TXT，不进入源码、日志、提示词或迁移包。版本源仍为 0.3.1。
+
+用户进一步要求自然语言研究意图检索：现有检索是“需求理解 → 联网检索”两阶段，支持参考论文、目标作者/潜在课题组、主题/方法相似点和年份条件；缺失参照先澄清。结果 Schema 为 v2，严格执行关系/年份过滤，重新计算共同署名，排除参考论文自身和仅主题相似的同组替代。真实中文同组请求与缺失指代场景已通过联网测试。Codex 严格响应 Schema 必须把可空字段也列入 required，不能删掉此兼容修复。
+
+## 本机接管与功能增强（2026-10-22）
+
+当前工作目录为 `D:\paper-master\paper-master`。原交接文档改动和 Git 历史已保留，迁移 ZIP 的 SHA-256 已核对。Node、pnpm、Rust MSVC、VS C++ 工具链与 WebView2 已恢复并验证；本地构建/启动方式见 `LOCAL_DEPLOYMENT.md`。
+
+本轮已按用户要求实现首次导入自动分析队列，以及使用有界原文证据的本地模型深度比较。原始版本号仍为 `v0.3.1`，新增行为归入尚未打标签的 `v0.3.2` 工作树。自动任务、比较语义/引文校验和当前 LM Studio API 兼容性是后续维护重点。最新实际验证结果请优先读取 `VALIDATION.md` 顶部。
+
+下面的 2026-08-24 快照作为历史迁移背景保留，其中“下一版本尚无需求”“比较仅发送已保存摘要”等描述已被本轮明确需求与实现更新。
+
+## 快照
+
+- 生成日期：2026-08-24（Asia/Shanghai）
+- 项目：`paper-master`
+- 当前稳定版本：`v0.3.1`
+- 下一目标版本：`v0.3.2`
+- 分支：`main`
+- 稳定基线提交：`c192565`（tag `v0.3.1`）
+- 阶段：维护与缺陷修复
+- Git 远端：未配置
+
+在本次交接整理开始前，工作树为干净状态。本次工作新增或更新 README、Codex 指令、交接说明、验证记录、忽略规则和迁移脚本；这些文档类变更未自动提交。迁移包会保留 `.git` 历史和当前工作树，因此新电脑解压后应先运行 `git status --short --branch`，确认这些预期变更后再决定提交方式。
+
+## 项目目标与当前状态
+
+目标是提供一个 Windows 本地优先的论文资料库：从本地 PDF 建立可搜索的 SQLite 论文库，并可选使用本机 LM Studio 模型执行中文结构化分析、受证据约束的标签和多论文比较。
+
+`v0.3.1` 已完成 PDF 导入、SQLite/FTS5、搜索与标签、Mock/LM Studio AI、2–8 篇比较、诊断链路、Windows 打包和论文出版物元数据修复。九个开发阶段均标记为完成，当前没有源码中的 TODO/FIXME 待办；下一版本尚未定义具体功能范围，应先由用户确认需求。
+
+## 已确认的关键决定
+
+- 本地优先：PDF 原地引用，不移动或删除源文件。
+- Rust 基础设施负责 SQLite、文件解析、LM Studio HTTP 和持久诊断；React 只通过应用服务和 Tauri 命令访问这些能力。
+- 数据库使用有序迁移，禁止以重建数据库替代兼容迁移。
+- LM Studio 适配器只接受回环地址，并忽略系统代理；完整论文、完整提示词、响应正文和 reasoning 不进入日志。
+- Mock provider 是无 LM Studio 环境的默认开发/故障路径工具。
+- AI 论文分析使用版本化结构和严格 Schema；叙述字段必须满足简体中文检查，标签必须能在当前论文内容中找到证据。
+- 多论文比较发送已保存分析与有界原文摘录，不发送无上限的完整提取文本；由模型进行语义比较并校验原文引文。
+
+## 迁移包内容
+
+默认迁移包包含：
+
+- 当前工作树的源码、锁文件、配置、测试、文档和图标；
+- `.git` 历史，使新电脑可直接查看提交与标签；
+- `paper/` 中 12 篇、约 58 MB 的只读真实 PDF 测试语料；
+- ZIP 内部 `_TRANSFER_MANIFEST.txt`，以及 ZIP 旁的 SHA-256 校验文件。
+
+默认排除：
+
+- `src-tauri/target`（约 17 GB）、其他 `target`、`node_modules`、`.pnpm-store`、`.cargo-home`、`dist` 和 `src-tauri/gen`；
+- `.env`、数据库、应用日志和临时日志；
+- `application/*.exe` 与 `application/*.lnk`，因为可从源码重建；
+- `handoff/` 以前生成的迁移包；
+- LM Studio 程序、模型、缓存、日志和旧电脑设置。
+
+特别说明：`src-tauri/src/ai/lm_studio.rs` 等适配器源码属于可编译项目的一部分，因此保留在包内；它们不是 LM Studio 的程序或模型文件，也不会让新电脑自动安装或启动 LM Studio。
+
+## 迁移前验证基线
+
+当前机器工具链参考：
+
+- Codex 随附 Node.js：`v24.19.0`
+- Codex 随附 pnpm：`11.19.0`；项目声明版本为 `11.16.0`
+- Rust/Cargo：`1.97.1`
+
+2026-08-24 的后端基线：
+
+```text
+cargo test --manifest-path src-tauri/Cargo.toml
+43 passed; 0 failed; 2 ignored
+```
+
+两个 ignored 测试均要求运行中的本机 LM Studio 服务，不属于默认基线。测试期间只有未使用字段/枚举变体的编译警告，没有失败。
+
+旧电脑根目录的 `node_modules` 已损坏，缺少 `@babel/parser` 的 `package.json`，所以直接在旧依赖目录运行 `pnpm test` 和 `pnpm build` 会在启动前失败。这是本机依赖目录问题，不是源码测试失败；`node_modules` 不进入迁移包。新电脑必须执行干净的 `pnpm install --frozen-lockfile`，再运行前端测试和构建。
+
+随后从提交快照建立独立临时副本，按 `pnpm-lock.yaml` 干净安装依赖；`pnpm test` 的 3 个测试文件、11 个测试全部通过，`pnpm build` 的 TypeScript 与 Vite 生产构建也通过。第一次安装时 Codex 随附的 Node 未在 shell 的 `PATH` 中，显式加入后安装成功；正常安装 Node.js 的新电脑应已具备该路径。完整结果记录在 `VALIDATION.md`。
+
+## 已知风险与未完成事项
+
+1. LM Studio 实时推理依赖外部软件、模型兼容性、内存/显存和本机服务状态；本次迁移不打包也不重新验证这些外部内容。
+2. 应用数据库和个人导入记录不在项目迁移包中。若用户需要保留实际库状态，应另行备份 `app.papermaster.desktop` 的 Tauri 应用数据目录；PDF 路径跨电脑变化后可能需要重新导入。
+3. `paper/` 测试语料不受 Git 管理。默认迁移包会携带它，但使用 `-WithoutPaperCorpus` 生成的精简包不会包含。
+4. 旧的 `application/` 发布可执行文件不进入迁移包。需要发布参考时，在新电脑通过 `pnpm tauri build` 重新生成。
+5. `VALIDATION.md` 中较早版本的历史失败记录是当时快照，不代表当前 `v0.3.1` 状态；优先读取顶部最新记录。
+
+## 新电脑接管步骤
+
+```powershell
+# 1. 解压后进入项目
+cd D:\dev\paper-master
+
+# 2. 确认历史、标签和交接改动
+git status --short --branch
+git log --oneline --decorate -8
+
+# 3. 使用锁文件安装全新依赖
+pnpm install --frozen-lockfile
+
+# 4. 建立新电脑基线
+pnpm test
+pnpm build
+cargo test --manifest-path src-tauri/Cargo.toml
+
+# 5. 无 LM Studio 启动开发版，使用 Mock provider
+pnpm tauri dev
+```
+
+如果只做前端工作，可先运行 `pnpm dev`。如果 Rust 链接失败，优先检查 MSVC Rust target 和 Visual Studio C++ Build Tools，而不是修改源码。
+
+## 建议给新电脑 Codex 的首条指令
+
+```text
+请接管 paper-master。先阅读 AGENTS.md、README.md、CODEX_HANDOFF.md、ARCHITECTURE.md 和 VALIDATION.md，运行 git status 确认迁移文档改动，然后用锁文件安装依赖并执行前后端基线验证。不要安装或打包 LM Studio；无本地模型时使用 Mock provider。先报告环境差异和测试结果，再开始功能修改。
+```
+
+## 下一步
+
+完成新电脑基线后，先让用户确定 `v0.3.2` 的具体目标。任何实现都应继续遵守 `AGENTS.md` 的隐私、本地优先、数据库迁移和只读 PDF 约束。

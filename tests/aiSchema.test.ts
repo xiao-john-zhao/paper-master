@@ -59,10 +59,16 @@ describe("AI response schemas", () => {
 
   it("validates comparison output independently", () => {
     expect(paperComparisonSchema.safeParse({
+      schema_version: "2",
       common_points: ["Common"],
       key_differences: ["Different"],
       method_comparison: "Methods compared",
       contribution_comparison: "Contributions compared",
+      problem_comparison: "Problems compared",
+      scenario_comparison: "Scenarios compared",
+      results_comparison: "Results compared",
+      limitations_comparison: "Limitations compared",
+      evidence: [{ paper_number: 1, quote: "A sufficiently long source evidence quote." }],
       summary: "Summary",
     }).success).toBe(true);
   });

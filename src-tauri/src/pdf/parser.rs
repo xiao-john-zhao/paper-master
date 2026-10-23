@@ -108,7 +108,11 @@ pub fn clean_text(input: &str) -> String {
         .to_string()
 }
 
-fn extract_metadata(path: &Path, text: &str, abstract_text: Option<String>) -> DocumentMetadata {
+pub(crate) fn extract_metadata(
+    path: &Path,
+    text: &str,
+    abstract_text: Option<String>,
+) -> DocumentMetadata {
     let lines: Vec<&str> = text
         .lines()
         .map(str::trim)
@@ -119,7 +123,7 @@ fn extract_metadata(path: &Path, text: &str, abstract_text: Option<String>) -> D
     let author_block = lines
         .iter()
         .skip(title_end_index + 1)
-        .take(6)
+        .take(16)
         .take_while(|line| !is_author_block_boundary(line))
         .filter(|line| plausible_author_line(line))
         .copied()
@@ -393,7 +397,7 @@ fn split_authors(line: &str) -> Vec<String> {
                     "member" | "senior member" | "student member" | "fellow" | "ieee"
                 )
         })
-        .take(12)
+        .take(100)
         .collect()
 }
 

@@ -25,6 +25,8 @@ pub enum ErrorCode {
     InvalidSettings,
     MigrationFailed,
     Internal,
+    CodexUnavailable,
+    ResearchFailed,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -95,6 +97,8 @@ impl AppError {
             ErrorCode::InvalidSettings => "INVALID_SETTINGS",
             ErrorCode::MigrationFailed => "MIGRATION_FAILED",
             ErrorCode::Internal => "INTERNAL",
+            ErrorCode::CodexUnavailable => "CODEX_UNAVAILABLE",
+            ErrorCode::ResearchFailed => "RESEARCH_FAILED",
         }
     }
 }

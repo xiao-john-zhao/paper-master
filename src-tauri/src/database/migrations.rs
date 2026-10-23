@@ -149,6 +149,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (3, MIGRATION_3),
     (4, MIGRATION_4),
     (5, MIGRATION_5),
+    (6, "SELECT 1;"),
 ];
 
 pub fn run_migrations(connection: &mut Connection) -> AppResult<i64> {
@@ -172,6 +173,10 @@ pub fn run_migrations(connection: &mut Connection) -> AppResult<i64> {
                 migration_error("Could not backfill publication metadata", error)
             })?;
         }
+        if *version == 6 {
+            backfill_abstracts(&transaction)
+                .map_err(|error| migration_error("Could not repair abstracts", error))?;
+        }
         transaction
             .pragma_update(None, "user_version", version)
             .map_err(|error| migration_error("Could not record migration version", error))?;
@@ -181,6 +186,24 @@ pub fn run_migrations(connection: &mut Connection) -> AppResult<i64> {
         applied = *version;
     }
     Ok(applied)
+}
+
+fn backfill_abstracts(connection: &Connection) -> rusqlite::Result<()> {
+    let mut statement = connection
+        .prepare("SELECT id,extracted_text FROM papers WHERE trim(extracted_text)<>''")?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (id, text) in rows {
+        let (sections, _) = crate::pdf::sections::detect_sections(&text);
+        connection.execute(
+            "UPDATE papers SET abstract_text=?2 WHERE id=?1",
+            rusqlite::params![id, sections.abstract_text],
+        )?;
+    }
+    Ok(())
 }
 
 fn backfill_publication_metadata(connection: &Connection) -> rusqlite::Result<()> {
@@ -234,12 +257,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn migration_repairs_abstract_without_touching_analysis_or_source_path() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        run_migrations(&mut connection).unwrap();
+        let text = "A Reliable Paper\nAda Lovelace\nAbstract—We propose a robust model.\nIndex Terms—models\nManuscript received 2025.\nAda Lovelace is with Example University.\nI. INTRODUCTION\nBody";
+        connection.execute("INSERT INTO papers(id,file_path,file_name,title,extracted_text,abstract_text,ai_summary,created_at,updated_at) VALUES('p1','original.pdf','original.pdf','Title',?1,'polluted abstract','saved summary','now','now')", [text]).unwrap();
+        connection.pragma_update(None, "user_version", 5).unwrap();
+        run_migrations(&mut connection).unwrap();
+        let values: (String, String, String) = connection
+            .query_row(
+                "SELECT abstract_text,ai_summary,file_path FROM papers WHERE id='p1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            values,
+            (
+                "We propose a robust model.".into(),
+                "saved summary".into(),
+                "original.pdf".into()
+            )
+        );
+    }
+
+    #[test]
     fn migrations_are_idempotent() {
         let mut connection = Connection::open_in_memory().expect("in-memory database");
-        assert_eq!(run_migrations(&mut connection).expect("first migration"), 5);
+        assert_eq!(run_migrations(&mut connection).expect("first migration"), 6);
         assert_eq!(
             run_migrations(&mut connection).expect("second migration"),
-            5
+            6
         );
         let paper_table: String = connection
             .query_row(
@@ -272,7 +320,7 @@ mod tests {
         connection
             .pragma_update(None, "user_version", 2)
             .expect("version");
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 5);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 6);
         let path: String = connection
             .query_row("SELECT file_path FROM papers WHERE id='p1'", [], |row| {
                 row.get(0)
@@ -295,7 +343,7 @@ mod tests {
             .pragma_update(None, "user_version", 3)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 5);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 6);
         let modules: (String, Option<String>, String) = connection
             .query_row(
                 "SELECT analysis_schema_version,research_scenario,key_innovations_json FROM papers WHERE id='p1'",
@@ -320,7 +368,7 @@ mod tests {
             .pragma_update(None, "user_version", 4)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 5);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 6);
         let venue: Option<String> = connection
             .query_row(
                 "SELECT publication_venue FROM papers WHERE id='p1'",
@@ -345,7 +393,7 @@ mod tests {
             .pragma_update(None, "user_version", 4)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 5);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 6);
         let venue: Option<String> = connection
             .query_row(
                 "SELECT publication_venue FROM papers WHERE id='p1'",
@@ -370,7 +418,7 @@ mod tests {
             .pragma_update(None, "user_version", 4)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 5);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 6);
         let title: String = connection
             .query_row("SELECT title FROM papers WHERE id='p1'", [], |row| {
                 row.get(0)

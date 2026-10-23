@@ -1,14 +1,41 @@
+use crate::error::{AppError, AppResult, ErrorCode};
 use std::{collections::HashMap, sync::Mutex};
+use tokio::sync::{Semaphore, SemaphorePermit};
 use tokio_util::sync::CancellationToken;
 
 pub struct AIRequestRegistry {
     requests: Mutex<HashMap<String, CancellationToken>>,
+    inference: Semaphore,
+    progress_app: Mutex<Option<tauri::AppHandle>>,
 }
 
 impl AIRequestRegistry {
     pub fn new() -> Self {
         Self {
             requests: Mutex::new(HashMap::new()),
+            inference: Semaphore::new(1),
+            progress_app: Mutex::new(None),
+        }
+    }
+
+    pub fn attach_progress(&self, app: tauri::AppHandle) {
+        if let Ok(mut handle) = self.progress_app.lock() {
+            *handle = Some(app);
+        }
+    }
+    pub fn report(&self, event: crate::services::progress::TaskProgress) {
+        if let Ok(handle) = self.progress_app.lock() {
+            if let Some(app) = handle.as_ref() {
+                crate::services::progress::emit(app, event);
+            }
+        }
+    }
+
+    pub async fn acquire(&self, token: &CancellationToken) -> AppResult<SemaphorePermit<'_>> {
+        tokio::select! {
+            biased;
+            _ = token.cancelled() => Err(AppError::new(ErrorCode::AiCancelled, "AI 请求已取消。")),
+            permit = self.inference.acquire() => permit.map_err(|_| AppError::new(ErrorCode::Internal, "AI 队列不可用。")),
         }
     }
 
@@ -53,5 +80,18 @@ mod tests {
 
         registry.remove("analysis-test-001");
         assert!(!registry.cancel("analysis-test-001"));
+    }
+
+    #[tokio::test]
+    async fn cancellation_interrupts_a_request_waiting_for_inference() {
+        let registry = AIRequestRegistry::new();
+        let token = registry.register("running");
+        let _permit = registry.acquire(&token).await.unwrap();
+        let waiting = registry.register("waiting");
+        assert!(registry.cancel("waiting"));
+        assert_eq!(
+            registry.acquire(&waiting).await.unwrap_err().code_string(),
+            "AI_CANCELLED"
+        );
     }
 }

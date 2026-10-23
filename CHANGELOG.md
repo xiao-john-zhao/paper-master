@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased — local takeover / v0.3.2 worktree
+
+### Added
+
+- Progress bars and a global task center for imports, queued/manual analysis, comparisons, research, downloads, settings, graph building and image export; actual file/byte/stage counts, elapsed time and terminal states.
+- Interactive keyword co-occurrence and paper relationship graphs using local tags/shared author names, bounded deterministic layout, filters, pan/zoom, evidence inspection, paper navigation, SVG and PNG export with full label legends.
+- Larger and more consistent typography, wrapping paper titles and responsive graph panels.
+- Optional Codex CLI provider with stdin prompts, ephemeral sessions, cancellation/timeouts and validated Chinese paper analysis; explicit online-mode setting.
+- Natural-language research requests with optional reference papers: interpret topic/author/team/year constraints before web retrieval, display the interpretation and per-result relationship evidence, ask for missing references and enforce filters without substituting topic-only matches.
+- IEEE research page with source-backed candidate screening, public HTTPS PDF download/import, isolated experimental WebVPN download window and system-browser fallback.
+- Separate author/first-author/corresponding-author evidence and library-wide shared-author or potential-team candidates. Private credential TXT opener and transfer exclusions.
+
+- Automatically queue new text-bearing imports for local AI identification and Chinese summaries; serialize inference, resume interrupted jobs, expose queue/failure states, and support cancellation/retry.
+- Prepare missing analyses before multi-paper comparison. Generate semantic differences across research problems, scenarios, mechanisms, contributions, results and limitations using saved summaries and bounded raw excerpts, with validated verbatim evidence from every selected paper.
+- Configurable import automation, model context length and reasoning effort; local build/start scripts.
+
+### Fixed
+
+- Finish interrupted WebVPN download progress, keep late task events from reviving completed/cancelled tasks, and initialize browser previews with the Mock provider.
+- Generate a Common Controls v6 manifest for MSVC test harnesses so linking native save dialogs does not cause `STATUS_ENTRYPOINT_NOT_FOUND` at test startup.
+- Open library PDFs through a validated backend record rather than the unscoped frontend opener; support relinking moved PDFs.
+- Stop abstracts at keywords and author/affiliation footnotes, accept long inline abstract headings, and repair existing abstracts with ordered migration 6.
+
+- Accept both current LM Studio `instance_id` and legacy `model_instance_id` load responses.
+- Send `none` for disabled reasoning through the OpenAI-compatible endpoint and include original evidence when requesting comparison repair.
+- Constrain generated citations to per-paper literal source passages in the response Schema, preventing the model from paraphrasing quoted evidence.
+- Keep cancelled comparisons from overwriting a newer result, and use backend-backed Mock behavior consistently in the desktop app.
+
 ## v0.3.1
 
 ### Fixed

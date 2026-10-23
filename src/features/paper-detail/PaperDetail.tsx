@@ -1,6 +1,8 @@
 import type { Paper } from "../../domain/paper/Paper";
 import { ExternalIcon, FileIcon, MoreIcon, SparkIcon } from "../../components/Icons";
 import { formatAuthors, formatNumber } from "../../utils/formatters";
+import type { AuthorContext } from "../../domain/paper/AuthorContext";
+import { InlineTaskProgress } from "../../components/TaskProgress";
 
 interface Props {
   paper?: Paper;
@@ -9,6 +11,11 @@ interface Props {
   onCancel(): void;
   onOpen(): void;
   onDelete(): void;
+  onRelink(): void;
+  authorContext?: AuthorContext;
+  authorError?: string;
+  onSelectRelated(id: string): void;
+  requestId?: string;
 }
 
 function AnalysisContent({ paper }: { paper: Paper }) {
@@ -18,7 +25,7 @@ function AnalysisContent({ paper }: { paper: Paper }) {
       <div className="analysis-empty">
         <div className="analysis-empty-icon"><SparkIcon/></div>
         <strong>No AI analysis yet</strong>
-        <p>Run a private analysis using the selected local provider. Only a bounded paper excerpt is sent to LM Studio.</p>
+        <p>使用设置中选定的服务读取论文有界文本，生成中文问题、场景、方法、创新、贡献、结果和局限。Codex 模式需启用联网授权。</p>
       </div>
     );
   }
@@ -48,7 +55,7 @@ function AnalysisContent({ paper }: { paper: Paper }) {
   );
 }
 
-export function PaperDetail({ paper, analyzing, onAnalyze, onCancel, onOpen, onDelete }: Props) {
+export function PaperDetail({ paper, analyzing, onAnalyze, onCancel, onOpen, onDelete, onRelink, authorContext, authorError, onSelectRelated,requestId }: Props) {
   if (!paper) {
     return <section className="detail-empty"><div className="empty-document"><FileIcon/></div><strong>Select a paper</strong><span>Metadata and local AI analysis will appear here.</span></section>;
   }
@@ -58,7 +65,8 @@ export function PaperDetail({ paper, analyzing, onAnalyze, onCancel, onOpen, onD
         <div className="detail-title-block"><span className="document-type">PDF</span><h1>{paper.title}</h1><p>{formatAuthors(paper.authors)}{paper.year ? ` · ${paper.year}` : ""}</p></div>
         <div className="detail-actions">
           <button className="button secondary" onClick={onOpen}><ExternalIcon/>Open PDF</button>
-          <button className={`button primary ${analyzing ? "cancel-analysis" : ""}`} onClick={analyzing ? onCancel : onAnalyze}>{analyzing ? <span className="mini-spinner light"/> : <SparkIcon/>}{analyzing ? "Cancel analysis" : paper.analysis ? "Analyze again" : "AI Analyze"}</button>
+          <button className="button secondary" onClick={onRelink}>重新关联 PDF</button>
+          <button className={`button primary ${analyzing ? "cancel-analysis" : ""}`} onClick={analyzing ? onCancel : onAnalyze}>{analyzing ? <span className="mini-spinner light"/> : <SparkIcon/>}{analyzing ? "取消分析" : paper.analysis ? "重新分析" : "AI 分析"}</button>
           <div className="menu-wrap"><button className="icon-button" aria-label="More paper actions"><MoreIcon/></button><button className="delete-action" onClick={onDelete}>Delete from library</button></div>
         </div>
       </header>
@@ -68,8 +76,18 @@ export function PaperDetail({ paper, analyzing, onAnalyze, onCancel, onOpen, onD
         {paper.pdf_diagnostics && <div><span>Extracted</span><strong>{formatNumber(paper.pdf_diagnostics.extracted_character_count)} characters · {paper.pdf_diagnostics.page_count} pages</strong></div>}
       </div>
       <div className="detail-scroll">
-        {paper.abstract && <section className="overview-section"><h2>Overview</h2><p>{paper.abstract}</p></section>}
+        <section className="author-information overview-section"><h2>作者与关联论文</h2>
+          <dl><dt>全部作者</dt><dd>{(authorContext?.authors ?? paper.authors).join(", ") || "未识别"}</dd><dt>第一作者（署名顺序）</dt><dd>{authorContext?.first_author ?? paper.authors[0] ?? "未识别"}</dd><dt>通信作者</dt><dd>{authorContext?.corresponding_authors.length ? authorContext.corresponding_authors.join(", ") : "原文未识别到明确标注"}</dd></dl>
+          {authorContext?.corresponding_evidence.map((quote, i) => <blockquote key={i}>{quote}</blockquote>)}
+          {authorError && <p role="alert">{authorError}</p>}
+          {authorContext ? <><h3>同作者 / 潜在同课题组论文（当前完整论文库）</h3>{authorContext.related_papers.length ? authorContext.related_papers.map((related) => <div className="related-paper" key={related.id}><button className="text-button" onClick={() => onSelectRelated(related.id)}>{related.title}</button><small>{related.relationship} · {related.shared_authors.join(", ")}</small><small>{related.evidence}</small></div>) : <p>当前库未找到同署名论文。课题组关系需结合通信作者和机构进一步核实。</p>}</> : !authorError && <p>正在读取作者关系…</p>}
+        </section>
+        {paper.abstract && <section className="overview-section"><h2>英文摘要 / Abstract</h2><p>{paper.abstract}</p></section>}
         <div className="section-title-row"><h2>AI Analysis</h2>{paper.analysis && <span className="analysis-version">Schema v{paper.analysis.schema_version}</span>}</div>
+        {analyzing && <InlineTaskProgress id={requestId ?? `analysis-auto-${paper.id}`} fallback="等待资源或正在分析，阶段信息将在服务响应时更新。"/>}
+        {paper.analysis_status === "queued" && <p role="status">已加入本地分析队列，等待前面的任务完成。</p>}
+        {paper.analysis_status === "analyzing" && <p role="status">所选 AI 服务正在读取和概括论文内容，完成后自动保存。</p>}
+        {paper.analysis_error && <p role="alert" className="analysis-error">{paper.analysis_error}</p>}
         <AnalysisContent paper={paper}/>
       </div>
     </section>

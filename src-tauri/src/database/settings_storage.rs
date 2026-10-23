@@ -55,7 +55,7 @@ impl SettingsStorage for SqliteSettingsStorage<'_> {
 }
 
 fn validate(settings: &AppSettings) -> AppResult<()> {
-    if !matches!(settings.ai_provider.as_str(), "lmstudio" | "mock") {
+    if !matches!(settings.ai_provider.as_str(), "lmstudio" | "mock" | "codex") {
         return Err(invalid("Unknown AI provider."));
     }
     let parsed = url::Url::parse(&settings.base_url)
@@ -73,6 +73,12 @@ fn validate(settings: &AppSettings) -> AppResult<()> {
     if !(0.0..=1.0).contains(&settings.temperature) {
         return Err(invalid("Temperature must be between 0 and 1."));
     }
+    if !matches!(
+        settings.reasoning_effort.as_str(),
+        "none" | "off" | "low" | "medium" | "high" | "xhigh"
+    ) {
+        return Err(invalid("Unsupported reasoning effort."));
+    }
     if !(30_000..=600_000).contains(&settings.request_timeout_ms) {
         return Err(invalid(
             "Request timeout must be between 30 and 600 seconds.",
@@ -88,9 +94,20 @@ fn validate(settings: &AppSettings) -> AppResult<()> {
             "Maximum AI output must be between 512 and 32,768 tokens.",
         ));
     }
-    if settings.privacy_mode != "local_only" {
+    if !(4096..=131_072).contains(&settings.model_context_length)
+        || settings.max_output_tokens + 2048 >= settings.model_context_length
+    {
         return Err(invalid(
-            "Only Local Only privacy mode is supported in v0.1.",
+            "模型上下文需在 4096–131072 token 范围，且应为输入预留至少 2048 token。",
+        ));
+    }
+    if !matches!(
+        settings.privacy_mode.as_str(),
+        "local_only" | "codex_online"
+    ) || (settings.ai_provider == "codex" && settings.privacy_mode != "codex_online")
+    {
+        return Err(invalid(
+            "Codex 模式需要明确启用联网授权；本地模型仍仅允许回环地址。",
         ));
     }
     Ok(())
@@ -116,5 +133,29 @@ mod tests {
         let settings = AppSettings::default();
         assert_eq!(settings.request_timeout_ms, 600_000);
         assert!(validate(&settings).is_ok());
+    }
+    #[test]
+    fn codex_requires_explicit_online_mode_and_keeps_lmstudio_local() {
+        let mut settings = AppSettings {
+            ai_provider: "codex".into(),
+            ..Default::default()
+        };
+        assert!(validate(&settings).is_err());
+        settings.privacy_mode = "codex_online".into();
+        assert!(validate(&settings).is_ok());
+        settings.base_url = "https://example.com/v1".into();
+        assert!(validate(&settings).is_err());
+    }
+
+    #[test]
+    fn existing_settings_enable_auto_analysis_without_resetting_model() {
+        let mut json = serde_json::to_value(AppSettings::default()).unwrap();
+        json.as_object_mut()
+            .unwrap()
+            .remove("auto_analyze_on_import");
+        json["model"] = "existing-model".into();
+        let settings: AppSettings = serde_json::from_value(json).unwrap();
+        assert!(settings.auto_analyze_on_import);
+        assert_eq!(settings.model, "existing-model");
     }
 }

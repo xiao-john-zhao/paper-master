@@ -10,6 +10,7 @@ use walkdir::WalkDir;
 use crate::{
     database::{
         paper_repository::{PaperRepository, SqlitePaperRepository},
+        settings_storage::{SettingsStorage, SqliteSettingsStorage},
         Database,
     },
     diagnostics::{AppLogger, LogEvent, LogLevel},
@@ -37,7 +38,17 @@ impl<'state> PaperImportService<'state> {
     }
 
     pub fn import_paths(&self, paths: Vec<String>, operation_id: String) -> ImportSummary {
+        self.import_observed(paths, operation_id, |_, _, _| {})
+    }
+
+    pub fn import_observed(
+        &self,
+        paths: Vec<String>,
+        operation_id: String,
+        observer: impl Fn(usize, usize, &str),
+    ) -> ImportSummary {
         let started = Instant::now();
+        observer(0, 0, "正在扫描 PDF 文件");
         self.record_operation(&operation_id, "running", "Import started");
         let mut start_event = LogEvent::info(
             "paper.import",
@@ -48,11 +59,24 @@ impl<'state> PaperImportService<'state> {
         self.logger.log(start_event);
 
         let (candidates, mut failed) = collect_candidates(paths);
+        let total = candidates.len();
         let mut imported = Vec::new();
         let mut duplicates = Vec::new();
         let mut seen = HashSet::new();
+        let auto_analyze = self
+            .database
+            .connection()
+            .and_then(|connection| SqliteSettingsStorage::new(&connection).get())
+            .map(|settings| settings.auto_analyze_on_import)
+            .unwrap_or(false);
 
-        for path in candidates {
+        for (index, path) in candidates.into_iter().enumerate() {
+            observer(index, total, "正在校验路径、提取 PDF 并保存");
+            let _progress = FileProgress {
+                observer: &observer,
+                completed: index + 1,
+                total,
+            };
             let canonical = match std::fs::canonicalize(&path) {
                 Ok(value) => value,
                 Err(error) => {
@@ -148,8 +172,18 @@ impl<'state> PaperImportService<'state> {
                 abstract_text,
                 analysis: None,
                 tags: Vec::new(),
-                analysis_status: "not_analyzed".to_string(),
-                analysis_error: None,
+                analysis_status: if extracted_text.trim().is_empty() {
+                    "failed"
+                } else if auto_analyze {
+                    "queued"
+                } else {
+                    "not_analyzed"
+                }
+                .to_string(),
+                analysis_error: extracted_text
+                    .trim()
+                    .is_empty()
+                    .then(|| "PDF 未提取到可分析文本；扫描件需要先完成 OCR。".to_string()),
                 pdf_diagnostics: Some(diagnostics),
                 created_at: now.clone(),
                 updated_at: now,
@@ -212,6 +246,17 @@ impl<'state> PaperImportService<'state> {
     }
 }
 
+struct FileProgress<'a> {
+    observer: &'a dyn Fn(usize, usize, &str),
+    completed: usize,
+    total: usize,
+}
+impl Drop for FileProgress<'_> {
+    fn drop(&mut self) {
+        (self.observer)(self.completed, self.total, "已处理文件（包含重复或失败项）");
+    }
+}
+
 fn collect_candidates(paths: Vec<String>) -> (Vec<PathBuf>, Vec<ImportFailure>) {
     let mut candidates = Vec::new();
     let mut failed = Vec::new();
@@ -258,7 +303,7 @@ fn is_pdf(path: &Path) -> bool {
         .is_some_and(|value| value.eq_ignore_ascii_case("pdf"))
 }
 
-fn normalize_storage_path(path: &Path) -> String {
+pub(crate) fn normalize_storage_path(path: &Path) -> String {
     let value = path.to_string_lossy().to_string();
     #[cfg(windows)]
     {
@@ -329,6 +374,37 @@ mod tests {
             1
         );
         drop(connection);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn progress_counts_fallback_and_duplicate_files_without_changing_sources() {
+        let root = std::env::temp_dir().join(format!("paper-master-progress-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("synthetic.pdf");
+        let bytes = b"%PDF-invalid synthetic fixture";
+        std::fs::write(&source, bytes).unwrap();
+        let database = Database::in_memory().unwrap();
+        let logger = AppLogger::new(&root).unwrap();
+        let events = std::cell::RefCell::new(Vec::new());
+        let summary = PaperImportService::new(&database, &logger).import_observed(
+            vec![
+                source.display().to_string(),
+                source.display().to_string(),
+                root.join("missing.pdf").display().to_string(),
+            ],
+            "progress-test".into(),
+            |done, total, _| events.borrow_mut().push((done, total)),
+        );
+        assert_eq!(summary.imported.len(), 1);
+        assert_eq!(summary.duplicates.len(), 1);
+        assert_eq!(summary.failed.len(), 1);
+        assert_eq!(
+            *events.borrow(),
+            vec![(0, 0), (0, 2), (1, 2), (1, 2), (2, 2)]
+        );
+        assert_eq!(std::fs::read(&source).unwrap(), bytes);
+        drop(database);
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -437,5 +513,58 @@ mod tests {
                 .map_or(0, |diagnostics| diagnostics.extracted_character_count)
         );
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn first_import_is_queued_once_and_automatic_analysis_can_be_disabled() {
+        let root =
+            std::env::temp_dir().join(format!("paper-master-auto-import-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let stream = "BT /F1 12 Tf 50 700 Td (A paper about wireless scheduling and fair resource allocation.) Tj ET";
+        let objects = ["<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>".into(),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".into(),
+            format!("<< /Length {} >>\nstream\n{stream}\nendstream", stream.len())];
+        let mut document = "%PDF-1.4\n".to_string();
+        let mut offsets = vec![0];
+        for (index, object) in objects.iter().enumerate() {
+            offsets.push(document.len());
+            document.push_str(&format!("{} 0 obj\n{object}\nendobj\n", index + 1));
+        }
+        let xref = document.len();
+        document.push_str("xref\n0 6\n0000000000 65535 f \n");
+        for offset in offsets.iter().skip(1) {
+            document.push_str(&format!("{offset:010} 00000 n \n"));
+        }
+        document.push_str(&format!(
+            "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+        ));
+        let source = root.join("first.pdf");
+        std::fs::write(&source, &document).unwrap();
+        let database = Database::in_memory().unwrap();
+        let logger = AppLogger::new(&root).unwrap();
+        let importer = PaperImportService::new(&database, &logger);
+        let imported = importer.import_paths(vec![source.display().to_string()], "first".into());
+        assert_eq!(imported.imported[0].analysis_status, "queued");
+        let duplicate =
+            importer.import_paths(vec![source.display().to_string()], "duplicate".into());
+        assert!(duplicate.imported.is_empty());
+        assert_eq!(duplicate.duplicates.len(), 1);
+        assert_eq!(std::fs::read_to_string(&source).unwrap(), document);
+        {
+            let connection = database.connection().unwrap();
+            SqliteSettingsStorage::new(&connection)
+                .save(&crate::domain::settings::AppSettings {
+                    auto_analyze_on_import: false,
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+        let disabled = root.join("disabled.pdf");
+        std::fs::write(&disabled, &document).unwrap();
+        let imported =
+            importer.import_paths(vec![disabled.display().to_string()], "disabled".into());
+        assert_eq!(imported.imported[0].analysis_status, "not_analyzed");
     }
 }

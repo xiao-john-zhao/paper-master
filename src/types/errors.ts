@@ -1,4 +1,6 @@
 export type AppErrorCode =
+  | "CODEX_UNAVAILABLE"
+  | "RESEARCH_FAILED"
   | "PDF_READ_FAILED"
   | "PDF_TEXT_EMPTY"
   | "DATABASE_WRITE_FAILED"

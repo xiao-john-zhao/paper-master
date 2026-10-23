@@ -64,6 +64,11 @@ Set `PAPER_MASTER_LMSTUDIO_URL` or `PAPER_MASTER_LMSTUDIO_MODEL` to override the
 
 ## Subsystem checks
 
+- Automatic imports: new text-bearing PDFs enter `queued`, then `analyzing`, then `analyzed` or `failed`. Original PDFs stay in place. The backend runs one inference at a time; cancelled requests waiting for inference also exit promptly. Failed records can be retried from paper detail. Interrupted running records resume on the next launch.
+- Evidence comparison: the v2 result must identify at least two paper numbers in each difference, cover every selected paper, and contain source quotes from every paper. A request-specific JSON Schema constrains quotes to literal original passages from their own paper, followed by independent source-attribution validation. Invalid results cause schema validation failure and one repair request with the original sources. Tags are omitted from the comparison input.
+- Current LM Studio API: native model loading returns `instance_id`; legacy `model_instance_id` remains accepted. OpenAI-compatible disabled reasoning is `reasoning_effort: "none"`, even when the native model capabilities call this setting `off`. An HTTP 400 may indicate unsupported reasoning settings or insufficient model context, rather than an unavailable server.
+- Tag repair: supported English terms may be suggested from the current source excerpt only; managed vocabulary from other papers must never become evidence. The model still selects and returns the tags, and all tags still pass source validation.
+
 - Database: use **Test Database** in Diagnostics to run an integrity check and inspect migration/table counts.
 - LM Studio: start its local server, then use **加载并测试**. The app lists downloaded LLMs through the native management API and explicitly loads the selected model. `LMSTUDIO_CONNECTION_FAILED` normally means the server is not listening; `LMSTUDIO_MODEL_NOT_FOUND` can also indicate an unavailable model file or insufficient memory/VRAM.
 - Mock AI: select **Mock (development)** in Settings to test views, persistence, parsing, and comparison without LM Studio.

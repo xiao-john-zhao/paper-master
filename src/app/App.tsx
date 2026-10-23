@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { listen } from "@tauri-apps/api/event";
 import { Sidebar, type AppView } from "../components/Sidebar";
 import { Toast, type ToastMessage } from "../components/Toast";
 import type { LibraryFilter, Paper } from "../domain/paper/Paper";
@@ -17,6 +17,11 @@ import type { AppSettings } from "../settings/types";
 import { normalizeAppError } from "../types/errors";
 import { APP_CONFIG } from "../config/appConfig";
 import { uiLogger } from "../diagnostics/uiLogger";
+import { ResearchPage } from "../pages/ResearchPage";
+import type { AuthorContext } from "../domain/paper/AuthorContext";
+import { TaskCenter,InlineTaskProgress } from "../components/TaskProgress";
+import { progressService,type TaskUpdate } from "../services/ProgressService";
+import { RelationshipGraphPage } from "../pages/RelationshipGraphPage";
 
 const services = createApplicationServices();
 
@@ -29,15 +34,21 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string>();
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [onlineMode, setOnlineMode] = useState(false);
+  const [authorContext, setAuthorContext] = useState<AuthorContext>();
+  const [authorError, setAuthorError] = useState<string>();
   const [analyzingId, setAnalyzingId] = useState<string>();
   const [activeRequestId, setActiveRequestId] = useState<string>();
   const [comparisonOpen, setComparisonOpen] = useState(false);
   const [comparisonResult, setComparisonResult] = useState<PaperComparisonResult>();
+  const [comparisonPapers, setComparisonPapers] = useState<Paper[]>([]);
   const [comparisonError, setComparisonError] = useState<string>();
   const [comparisonRequestId, setComparisonRequestId] = useState<string>();
   const [comparing, setComparing] = useState(false);
+  const [importRequestId,setImportRequestId] = useState<string>();
   const [toast, setToast] = useState<ToastMessage>();
   const toastTimer = useRef<number | undefined>(undefined);
+  const currentComparison = useRef<string | undefined>(undefined);
 
   const notify = useCallback((tone: ToastMessage["tone"], title: string, message?: string) => {
     window.clearTimeout(toastTimer.current);
@@ -45,8 +56,8 @@ export function App() {
     toastTimer.current = window.setTimeout(() => setToast(undefined), 4500);
   }, []);
 
-  const loadPapers = useCallback(async () => {
-    setLoading(true);
+  const loadPapers = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     try {
       const result = await services.paperService.list({ text: search, tag, filter });
       setPapers(result);
@@ -54,13 +65,44 @@ export function App() {
     } catch (error) {
       const appError = normalizeAppError(error);
       notify("error", "Library could not be loaded", appError.message);
-    } finally { setLoading(false); }
+    } finally { if (!quiet) setLoading(false); }
   }, [filter, notify, search, tag]);
 
   useEffect(() => { const timer = window.setTimeout(() => void loadPapers(), search ? 160 : 0); return () => window.clearTimeout(timer); }, [loadPapers, search]);
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
+  useEffect(() => {
+    if (!services.tauri) return;
+    let disposed=false; let cleanup: (() => void) | undefined;
+    void listen<TaskUpdate>("task-progress", event => { if (!disposed) progressService.update(event.payload); }).then(unlisten => { if (disposed) unlisten(); else cleanup=unlisten; });
+    return () => { disposed=true; cleanup?.(); };
+  },[]);
+  useEffect(() => { services.settingsStorage.get().then((settings) => { setOnlineMode(settings.privacy_mode === "codex_online"); settingsSaved(settings); }).catch(() => undefined); }, []);
+  useEffect(() => {
+    if (!services.tauri) return;
+    let disposed = false;
+    const cleanup: Array<() => void> = [];
+    for (const [event, handler] of [
+      ["research-download", () => { void loadPapers(true); notify("success", "学校 PDF 下载完成，已处理导入任务"); }],
+      ["research-download-error", (message: string) => notify("error", "学校 PDF 下载未完成", message)],
+    ] as const) {
+      void listen<string>(event, (message) => { if (!disposed) handler(message.payload); }).then((unlisten) => { if (disposed) unlisten(); else cleanup.push(unlisten); });
+    }
+    return () => { disposed = true; cleanup.forEach((unlisten) => unlisten()); };
+  }, [loadPapers, notify]);
+  useEffect(() => {
+    if (!services.tauri) return;
+    const timer = window.setInterval(() => void loadPapers(true), 2500);
+    return () => window.clearInterval(timer);
+  }, [loadPapers]);
 
   const selected = papers.find((paper) => paper.id === selectedId);
+  useEffect(() => {
+    let active = true;
+    setAuthorContext(undefined); setAuthorError(undefined);
+    if (selectedId && !services.tauri) setAuthorError("作者关系和原文证据在桌面版提供。");
+    if (selectedId && services.tauri) void services.paperService.authorContext(selectedId).then((context) => { if (active) setAuthorContext(context); }).catch((error) => { if (active) setAuthorError(normalizeAppError(error).message); });
+    return () => { active = false; };
+  }, [selectedId, papers.length]);
   const tags = useMemo(() => {
     const counts = new Map<string, number>();
     papers.forEach((paper) => paper.tags.forEach((paperTag) => counts.set(paperTag, (counts.get(paperTag) ?? 0) + 1)));
@@ -84,10 +126,12 @@ export function App() {
       if (!selection) return;
       const paths = Array.isArray(selection) ? selection : [selection];
       const operationId = createOperationId("import");
+      setImportRequestId(operationId);
       uiLogger.info("import_papers", "PDF import requested", { requestId: operationId });
       const result = await services.paperService.importPaths(paths, operationId);
       await loadPapers();
       const notes = [
+        result.imported.some((paper) => paper.analysis_status === "queued") ? "已加入本地 AI 分析队列，完成后自动保存概括。" : "",
         result.duplicates.length ? `${result.duplicates.length} duplicate path${result.duplicates.length === 1 ? "" : "s"} skipped.` : "",
         result.failed.length ? `${result.failed.length} file${result.failed.length === 1 ? "" : "s"} could not be imported.` : "",
       ].filter(Boolean).join(" ");
@@ -97,7 +141,7 @@ export function App() {
   }
 
   async function analyzeSelected() {
-    if (!selected) return;
+    if (!selected || analyzingId || ["queued", "analyzing"].includes(selected.analysis_status)) return;
     const requestId = createOperationId("analysis");
     uiLogger.info("analyze_paper", "AI analysis requested", { requestId });
     setAnalyzingId(selected.id);
@@ -115,28 +159,43 @@ export function App() {
   }
 
   async function cancelAnalysis() {
-    if (!activeRequestId) return;
-    try { await services.analysisService.cancel(activeRequestId); notify("info", "Cancelling analysis", `Request ${activeRequestId}`); }
+    if (!selected) return;
+    try {
+      if (activeRequestId && analyzingId === selected.id) await services.analysisService.cancel(activeRequestId);
+      else await services.analysisService.cancelAutomatic(selected.id);
+      await loadPapers(true);
+      notify("info", "正在取消分析");
+    }
     catch (error) { notify("error", "Analysis could not be cancelled", normalizeAppError(error).message); }
   }
 
   async function compareSelected() {
-    const selectedPapers = [...compareIds].map((id) => papers.find((paper) => paper.id === id)).filter((paper): paper is Paper => Boolean(paper));
-    if (selectedPapers.length < 2 || selectedPapers.length > 8) return;
-    const missing = selectedPapers.find((paper) => !paper.analysis);
-    if (missing) { notify("info", "请先完成所选论文的分析", `《${missing.title}》还没有已保存的 AI 分析。`); return; }
+    if (compareIds.size < 2 || compareIds.size > 8) return;
+    if (comparing) return;
+    setComparing(true);
     const requestId = createOperationId("compare");
+    currentComparison.current = requestId;
     uiLogger.info("compare_papers", "Paper comparison requested", { requestId });
-    setComparisonOpen(true); setComparing(true); setComparisonResult(undefined); setComparisonError(undefined); setComparisonRequestId(requestId);
+    setComparisonResult(undefined); setComparisonError(undefined); setComparisonRequestId(requestId);
     try {
+      // A search/filter can hide selected papers; resolve every selected ID from the repository.
+      const resolved = await Promise.all([...compareIds].map((id) => services.paperService.get(id)));
+      if (resolved.some((paper) => !paper)) throw new Error("部分已选论文已被移除，请重新选择。");
+      const selectedPapers = resolved as Paper[];
+      setComparisonPapers(selectedPapers); setComparisonOpen(true);
       const response = await services.comparisonService.compare(selectedPapers, requestId);
-      setComparisonResult(response.result);
+      if (currentComparison.current === requestId) setComparisonResult(response.result);
     } catch (error) {
-      setComparisonError(normalizeAppError(error).message);
-    } finally { setComparing(false); }
+      if (currentComparison.current === requestId) {
+        const message = normalizeAppError(error).message;
+        setComparisonError(message);
+        notify("error", "论文对比未完成", message);
+      }
+    } finally { if (currentComparison.current === requestId) setComparing(false); }
   }
 
   async function cancelComparison() {
+    currentComparison.current = undefined;
     if (comparisonRequestId && comparing) await services.comparisonService.cancel(comparisonRequestId).catch(() => undefined);
     setComparing(false); setComparisonOpen(false);
   }
@@ -144,8 +203,18 @@ export function App() {
   async function openSelected() {
     if (!selected) return;
     if (!services.tauri) { notify("info", "Open PDF is available in the desktop app", selected.file_path); return; }
-    try { await openPath(selected.file_path); }
+    try { await services.paperService.openPdf(selected.id); }
     catch (error) { notify("error", "PDF could not be opened", normalizeAppError(error).message); }
+  }
+
+  async function relinkSelected() {
+    if (!selected || !services.tauri) return;
+    try {
+      const path = await open({ multiple: false, filters: [{ name: "原始 PDF", extensions: ["pdf"] }] });
+      if (!path || Array.isArray(path)) return;
+      await services.paperService.relinkPdf(selected.id, path); await loadPapers(true);
+      notify("success", "PDF 路径已更新");
+    } catch (error) { notify("error", "重新关联失败", normalizeAppError(error).message); }
   }
 
   async function deleteSelected() {
@@ -155,28 +224,30 @@ export function App() {
   }
 
   function settingsSaved(settings: AppSettings) {
+    setOnlineMode(settings.privacy_mode === "codex_online");
     services.analysisService.setProvider(services.providers[settings.ai_provider]);
     services.comparisonService.setProvider(services.providers[settings.ai_provider]);
   }
 
   return (
     <div className="app-shell">
-      <Sidebar view={view} filter={filter} tags={tags} activeTag={tag} developmentMode={APP_CONFIG.developmentMode || !services.tauri} onView={setView} onFilter={setFilter} onTag={setTag}/>
+      <Sidebar view={view} filter={filter} tags={tags} activeTag={tag} onlineMode={onlineMode} developmentMode={APP_CONFIG.developmentMode || !services.tauri} onView={setView} onFilter={setFilter} onTag={setTag}/>
       {view === "library" && <div className="library-layout">
         <section className="library-column">
           <LibraryToolbar search={search} compareCount={compareIds.size} loading={loading} onSearch={setSearch} onImportPdf={() => void importPapers(false)} onImportFolder={() => void importPapers(true)} onCompare={() => void compareSelected()}/>
+          {importRequestId && <div className="library-import-progress"><InlineTaskProgress id={importRequestId}/></div>}
           {(filter !== "all" || tag) && <div className="active-filter"><span>Showing {tag ? `tag: ${tag}` : filter === "recent" ? "recently added" : "AI analyzed"}</span><button onClick={() => { setTag(undefined); setFilter("all"); }}>Clear</button></div>}
           <PaperList papers={papers} selectedId={selectedId} compareIds={compareIds} loading={loading} onSelect={setSelectedId} onToggleCompare={toggleCompare}/>
           <footer className="library-count">{papers.length} paper{papers.length === 1 ? "" : "s"}</footer>
         </section>
-        <PaperDetail paper={selected} analyzing={analyzingId === selected?.id} onAnalyze={() => void analyzeSelected()} onCancel={() => void cancelAnalysis()} onOpen={() => void openSelected()} onDelete={() => void deleteSelected()}/>
+        <PaperDetail requestId={analyzingId === selected?.id ? activeRequestId : undefined} paper={selected} authorContext={authorContext} authorError={authorError} onSelectRelated={(id) => { setSearch(""); setTag(undefined); setFilter("all"); setSelectedId(id); }} onRelink={() => void relinkSelected()} analyzing={!!selected && (analyzingId === selected.id || ["queued", "analyzing"].includes(selected.analysis_status))} onAnalyze={() => void analyzeSelected()} onCancel={() => void cancelAnalysis()} onOpen={() => void openSelected()} onDelete={() => void deleteSelected()}/>
       </div>}
       {view === "settings" && <SettingsPage storage={services.settingsStorage} providers={services.providers} onSaved={settingsSaved} onNotify={notify}/>} 
       {view === "diagnostics" && <DiagnosticsPage onNotify={notify}/>} 
-      {comparisonOpen && (() => {
-        const selectedPapers = [...compareIds].map((id) => papers.find((paper) => paper.id === id)).filter((paper): paper is Paper => Boolean(paper));
-        return selectedPapers.length >= 2 ? <ComparisonDialog papers={selectedPapers} result={comparisonResult} loading={comparing} error={comparisonError} requestId={comparisonRequestId} onClose={() => setComparisonOpen(false)} onCancel={() => void cancelComparison()} onRetry={() => void compareSelected()}/> : null;
-      })()}
+      {view === "research" && <ResearchPage service={services.researchService} paperService={services.paperService} initialReferenceId={selectedId} desktop={services.tauri} onImported={() => void loadPapers(true)} onSettings={() => setView("settings")}/>}
+      {view === "graph" && <RelationshipGraphPage service={services.graphService} onPaper={(id)=>{setSearch("");setTag(undefined);setFilter("all");setSelectedId(id);setView("library");}}/>}
+      {comparisonOpen && comparisonPapers.length >= 2 && <ComparisonDialog papers={comparisonPapers} result={comparisonResult} loading={comparing} error={comparisonError} requestId={comparisonRequestId} onClose={() => setComparisonOpen(false)} onCancel={() => void cancelComparison()} onRetry={() => void compareSelected()}/>}
+      <TaskCenter/>
       <Toast toast={toast} onClose={() => setToast(undefined)}/>
     </div>
   );

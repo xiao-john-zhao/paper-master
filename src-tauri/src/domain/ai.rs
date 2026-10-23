@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 pub struct AnalysisRequest {
     pub paper_id: String,
     pub request_id: String,
+    #[serde(default)]
+    pub ensure_only: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -16,11 +18,24 @@ pub struct CompareRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PaperComparisonResult {
+    pub schema_version: String,
     pub common_points: Vec<String>,
     pub key_differences: Vec<String>,
+    pub problem_comparison: String,
+    pub scenario_comparison: String,
     pub method_comparison: String,
     pub contribution_comparison: String,
+    pub results_comparison: String,
+    pub limitations_comparison: String,
+    pub evidence: Vec<ComparisonEvidence>,
     pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ComparisonEvidence {
+    pub paper_number: usize,
+    pub quote: String,
 }
 
 impl PaperComparisonResult {

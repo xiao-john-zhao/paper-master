@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MockAIProvider } from "../src/providers/ai/MockAIProvider";
 import { InMemoryPaperRepository } from "../src/repositories/InMemoryPaperRepository";
 import { AnalysisService } from "../src/services/AnalysisService";
@@ -44,5 +44,42 @@ describe("application services", () => {
     const response = await service.compare([first!, second!, third], "compare-test-003");
     expect(response.requestId).toBe("compare-test-003");
     expect(response.result.summary).toContain("论文");
+  });
+
+  it("prepares missing content analysis before asking the model to compare", async () => {
+    const repository = new InMemoryPaperRepository();
+    const provider = new MockAIProvider();
+    const analyze = vi.spyOn(provider, "analyzePaper");
+    const compare = vi.spyOn(provider, "comparePapers");
+    const service = new ComparisonService(provider, new AnalysisService(provider, repository), repository);
+    const first = (await repository.findById("demo-parser"))!;
+    const second = (await repository.findById("demo-section-aware"))!;
+    await service.compare([first, second], "compare-prepare");
+    expect(analyze).toHaveBeenCalledExactlyOnceWith({ paper_id: first.id, request_id: `compare-prepare-prepare-${first.id}`, ensure_only: true });
+    expect(compare).toHaveBeenCalledOnce();
+    expect((await repository.findById(first.id))?.analysis_status).toBe("analyzed");
+    expect(analyze.mock.invocationCallOrder[0]).toBeLessThan(compare.mock.invocationCallOrder[0]);
+  });
+
+  it("cancels preparation without sending a comparison request", async () => {
+    const repository = new InMemoryPaperRepository();
+    const provider = new MockAIProvider();
+    const compare = vi.spyOn(provider, "comparePapers");
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => { started = resolve; });
+    let finish!: () => void;
+    vi.spyOn(provider, "analyzePaper").mockImplementation(async () => {
+      started();
+      await new Promise<void>((resolve) => { finish = resolve; });
+      throw new AppError({ code: "AI_CANCELLED", message: "已取消" });
+    });
+    vi.spyOn(provider, "cancel").mockImplementation(async () => { finish(); });
+    const service = new ComparisonService(provider, new AnalysisService(provider, repository), repository);
+    const result = service.compare([(await repository.findById("demo-parser"))!, (await repository.findById("demo-section-aware"))!], "cancel-prepare");
+    const rejected = expect(result).rejects.toMatchObject({ code: "AI_CANCELLED" });
+    await ready;
+    await service.cancel("cancel-prepare");
+    await rejected;
+    expect(compare).not.toHaveBeenCalled();
   });
 });

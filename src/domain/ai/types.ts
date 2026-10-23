@@ -14,10 +14,16 @@ export const paperAnalysisSchema = z.object({
 });
 
 export const paperComparisonSchema = z.object({
+  schema_version: z.literal("2"),
   common_points: z.array(z.string().trim().min(1)),
   key_differences: z.array(z.string().trim().min(1)),
+  problem_comparison: z.string().trim().min(1),
+  scenario_comparison: z.string().trim().min(1),
   method_comparison: z.string().trim().min(1),
   contribution_comparison: z.string().trim().min(1),
+  results_comparison: z.string().trim().min(1),
+  limitations_comparison: z.string().trim().min(1),
+  evidence: z.array(z.object({ paper_number: z.number().int().min(1).max(8), quote: z.string().min(20).max(180) })),
   summary: z.string().trim().min(1),
 });
 
@@ -37,6 +43,7 @@ export interface ConnectionResult {
 export interface AnalysisRequest {
   paper_id: string;
   request_id: string;
+  ensure_only?: boolean;
 }
 
 export interface CompareRequest {

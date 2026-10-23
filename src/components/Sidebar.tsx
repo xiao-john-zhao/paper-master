@@ -1,7 +1,7 @@
 import type { LibraryFilter } from "../domain/paper/Paper";
-import { ClockIcon, DiagnosticsIcon, LibraryIcon, SettingsIcon, SparkIcon } from "./Icons";
+import { ClockIcon, DiagnosticsIcon, LibraryIcon, SettingsIcon, SparkIcon,GraphIcon } from "./Icons";
 
-export type AppView = "library" | "settings" | "diagnostics";
+export type AppView = "library" | "settings" | "diagnostics" | "research" | "graph";
 
 interface Props {
   view: AppView;
@@ -9,12 +9,13 @@ interface Props {
   tags: Array<{ name: string; count: number }>;
   activeTag?: string;
   developmentMode: boolean;
+  onlineMode?: boolean;
   onView(view: AppView): void;
   onFilter(filter: LibraryFilter): void;
   onTag(tag?: string): void;
 }
 
-export function Sidebar({ view, filter, tags, activeTag, developmentMode, onView, onFilter, onTag }: Props) {
+export function Sidebar({ view, filter, tags, activeTag, developmentMode, onlineMode, onView, onFilter, onTag }: Props) {
   const nav = (value: LibraryFilter, icon: React.ReactNode, label: string) => (
     <button className={`side-item ${view === "library" && filter === value && !activeTag ? "active" : ""}`} onClick={() => { onView("library"); onTag(undefined); onFilter(value); }}>
       {icon}<span>{label}</span>
@@ -25,10 +26,12 @@ export function Sidebar({ view, filter, tags, activeTag, developmentMode, onView
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">PM</span><span>paper-master</span></div>
       <div className="side-section">
-        <div className="side-heading">Library</div>
-        {nav("all", <LibraryIcon />, "All Papers")}
-        {nav("recent", <ClockIcon />, "Recently Added")}
-        {nav("analyzed", <SparkIcon />, "AI Analyzed")}
+        <div className="side-heading">文献工作台</div>
+        {nav("all", <LibraryIcon />, "全部论文")}
+        {nav("recent", <ClockIcon />, "最近添加")}
+        {nav("analyzed", <SparkIcon />, "已完成分析")}
+        <button className={`side-item ${view === "research" ? "active" : ""}`} onClick={() => onView("research")}><SparkIcon/><span>联网检索论文</span></button>
+        <button className={`side-item ${view === "graph" ? "active" : ""}`} onClick={() => onView("graph")}><GraphIcon/><span>论文关系图</span></button>
       </div>
       <div className="side-section tags-section">
         <div className="side-heading side-heading-row"><span>Tags</span><span>{tags.length}</span></div>
@@ -44,7 +47,7 @@ export function Sidebar({ view, filter, tags, activeTag, developmentMode, onView
       <div className="sidebar-footer">
         <button className={`side-item ${view === "settings" ? "active" : ""}`} onClick={() => onView("settings")}><SettingsIcon/><span>Settings</span></button>
         {developmentMode && <button className={`side-item ${view === "diagnostics" ? "active" : ""}`} onClick={() => onView("diagnostics")}><DiagnosticsIcon/><span>Diagnostics</span></button>}
-        <div className="local-badge"><span className="status-dot online"/>Local only</div>
+        <div className="local-badge"><span className="status-dot online"/>{onlineMode ? "Codex 联网已授权" : "本地分析"}</div>
       </div>
     </aside>
   );

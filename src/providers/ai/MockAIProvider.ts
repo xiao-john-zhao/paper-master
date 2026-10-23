@@ -1,6 +1,7 @@
 import type { PaperAnalysisResult } from "../../domain/paper/Paper";
 import type { AnalysisRequest, CompareRequest, ConnectionResult, PaperComparisonResult } from "../../domain/ai/types";
 import type { AIProvider } from "./AIProvider";
+import { AppError } from "../../types/errors";
 
 const MOCK_ANALYSIS: PaperAnalysisResult = {
   schema_version: "2",
@@ -44,7 +45,7 @@ export class MockAIProvider implements AIProvider {
 
   async analyzePaper(request: AnalysisRequest) {
     await delay(650);
-    if (this.cancelled.delete(request.request_id)) throw new Error("Analysis cancelled");
+    if (this.cancelled.delete(request.request_id)) throw new AppError({code:"AI_CANCELLED",message:"论文分析已取消。"});
     return structuredClone(MOCK_ANALYSIS);
   }
 
@@ -54,12 +55,18 @@ export class MockAIProvider implements AIProvider {
 
   async comparePapers(request: CompareRequest): Promise<PaperComparisonResult> {
     await delay(500);
-    if (this.cancelled.delete(request.request_id)) throw new Error("Comparison cancelled");
+    if (this.cancelled.delete(request.request_id)) throw new AppError({code:"AI_CANCELLED",message:"论文对比已取消。"});
     return {
+      schema_version: "2",
       common_points: ["所选论文都关注学术文档的可靠处理。", "所选论文都强调可复现的本地工作流。"],
       key_differences: ["不同论文分别侧重章节感知输入构建、评估方法或证据检索。"],
       method_comparison: "各论文采用了不同但互补的章节选择、检索评分或学习排序策略。",
       contribution_comparison: "这些贡献分别覆盖数据准备、证据检索和评估框架，可在同一工作流中组合。",
+      problem_comparison: "Mock 演示：论文分别关注输入构建与证据检索问题。",
+      scenario_comparison: "Mock 演示：适用场景不同。",
+      results_comparison: "Mock 演示：实验条件不同，不可直接比较。",
+      limitations_comparison: "Mock 演示：各论文均存在适用范围限制。",
+      evidence: [],
       summary: "所选论文具有互补性：它们从输入构建、证据选择和效果评估等角度共同改进本地论文分析。",
     };
   }

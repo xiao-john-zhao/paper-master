@@ -6,7 +6,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     ai::{
-        parser::{parse_analysis_response, parse_comparison_response, validate_analysis_tags},
+        parser::{
+            parse_analysis_response, parse_comparison_response, validate_analysis_tags,
+            validate_comparison_evidence,
+        },
         prompt::{
             build_analysis_user_prompt, build_comparison_user_prompt, ANALYSIS_SYSTEM_PROMPT,
             COMPARISON_SYSTEM_PROMPT, REPAIR_ANALYSIS_PROMPT, REPAIR_COMPARISON_PROMPT,
@@ -24,6 +27,74 @@ use crate::{
 
 #[derive(Default)]
 pub struct LMStudioProvider;
+
+fn source_tag_candidates(input: &str) -> String {
+    let source = input
+        .split("[MANAGED TAG VOCABULARY START")
+        .next()
+        .unwrap_or(input);
+    let terms = regex::Regex::new(r"\b[A-Za-z][A-Za-z-]{2,30}\b").expect("static regex");
+    let mut counts = std::collections::HashMap::<String, (usize, String)>::new();
+    for found in terms.find_iter(source) {
+        let term = found.as_str();
+        let lower = term.to_ascii_lowercase();
+        if [
+            "the",
+            "and",
+            "for",
+            "with",
+            "from",
+            "that",
+            "this",
+            "are",
+            "was",
+            "were",
+            "which",
+            "can",
+            "has",
+            "have",
+            "not",
+            "our",
+            "their",
+            "these",
+            "those",
+            "also",
+            "been",
+            "will",
+            "more",
+            "such",
+            "than",
+            "into",
+            "each",
+            "based",
+            "using",
+            "paper",
+            "title",
+            "abstract",
+            "introduction",
+            "conclusion",
+            "selected",
+            "body",
+            "method",
+            "result",
+            "evidence",
+        ]
+        .contains(&lower.as_str())
+        {
+            continue;
+        }
+        let entry = counts.entry(lower).or_insert((0, term.into()));
+        entry.0 += 1;
+    }
+    let mut ranked: Vec<_> = counts.into_iter().collect();
+    ranked.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then(a.0.cmp(&b.0)));
+    ranked
+        .into_iter()
+        .take(40)
+        .map(|(_, (_, term))| term)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 #[derive(Deserialize)]
 struct ModelsResponse {
@@ -71,6 +142,7 @@ struct LegacyModelItem {
 
 #[derive(Deserialize)]
 struct LoadModelResponse {
+    #[serde(alias = "instance_id")]
     model_instance_id: String,
 }
 
@@ -100,25 +172,67 @@ struct ChatCompletion {
 }
 
 #[derive(Clone, Copy)]
-enum StructuredOutputSchema {
+enum StructuredOutputSchema<'a> {
     PaperAnalysis,
-    PaperComparison,
+    PaperComparison(&'a str),
 }
 
-impl StructuredOutputSchema {
+impl StructuredOutputSchema<'_> {
     fn name(self) -> &'static str {
         match self {
             Self::PaperAnalysis => "paper_analysis_result",
-            Self::PaperComparison => "paper_comparison_result",
+            Self::PaperComparison(_) => "paper_comparison_result",
         }
     }
 
     fn schema(self) -> serde_json::Value {
         match self {
             Self::PaperAnalysis => PaperAnalysisResult::response_json_schema(),
-            Self::PaperComparison => PaperComparisonResult::response_json_schema(),
+            Self::PaperComparison(input) => comparison_response_schema(input),
         }
     }
+}
+
+pub(crate) fn comparison_response_schema(input: &str) -> serde_json::Value {
+    let mut schema = PaperComparisonResult::response_json_schema();
+    let Ok(source) = serde_json::from_str::<serde_json::Value>(input) else {
+        return schema;
+    };
+    let Some(papers) = source["papers"].as_array() else {
+        return schema;
+    };
+    let choices: Vec<_> = papers
+        .iter()
+        .enumerate()
+        .map(|(index, paper)| {
+            let excerpt = paper["source_excerpt"].as_str().unwrap_or("");
+            let title = paper["title"].as_str().unwrap_or("");
+            let mut quotes: Vec<String> = excerpt
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.starts_with('[') && *line != title)
+                .map(|line| line.chars().take(160).collect::<String>())
+                .filter(|line| line.chars().count() >= 20)
+                .collect();
+            quotes.dedup();
+            // Offer passages throughout the excerpt rather than only its beginning.
+            if quotes.len() > 24 {
+                quotes = (0..24)
+                    .map(|n| quotes[n * (quotes.len() - 1) / 23].clone())
+                    .collect();
+            }
+            if quotes.is_empty() {
+                quotes.push(excerpt.chars().take(160).collect());
+            }
+            serde_json::json!({"type":"object", "additionalProperties":false,
+            "properties":{"paper_number":{"type":"integer","const":index+1},
+                "quote":{"type":"string","enum":quotes}},
+            "required":["paper_number","quote"]})
+        })
+        .collect();
+    schema["properties"]["evidence"] = serde_json::json!({"type":"array", "minItems":papers.len(), "maxItems":papers.len()*2,
+        "items":{"oneOf":choices}});
+    schema
 }
 
 #[derive(Serialize)]
@@ -246,8 +360,9 @@ impl AIProvider for LMStudioProvider {
             }),
             Err(first_error) => {
                 for retry in 1..=AI_STRUCTURED_RETRY_COUNT {
+                    let candidates = source_tag_candidates(input);
                     let repair = format!(
-                        "{REPAIR_ANALYSIS_PROMPT}\n\n论文内容：\n{input}\n\n待修复响应：\n{content}"
+                        "{REPAIR_ANALYSIS_PROMPT}\n\n本次校验要求：至少三个标签的括号内必须包含论文原文中的连续术语，不能自创缩写。请从下面实际出现的英文术语中选择与论文主旨相符的术语，写成中文名称（原文术语）；候选仅用于定位原文，不代表建议采用全部词语。\n{candidates}\n\n论文内容：\n{input}\n\n待修复响应：\n{content}"
                     );
                     completion = self
                         .send_chat(
@@ -307,11 +422,13 @@ impl AIProvider for LMStudioProvider {
                 &model,
                 settings,
                 cancellation.clone(),
-                StructuredOutputSchema::PaperComparison,
+                StructuredOutputSchema::PaperComparison(input),
             )
             .await?;
         let mut content = completion.content.clone();
-        match parse_comparison_response(&content) {
+        match parse_comparison_response(&content)
+            .and_then(|value| validate_comparison_evidence(value, input))
+        {
             Ok(value) => Ok(ProviderResponse {
                 value,
                 http_status: Some(completion.http_status),
@@ -323,19 +440,21 @@ impl AIProvider for LMStudioProvider {
             }),
             Err(first_error) => {
                 for retry in 1..=AI_STRUCTURED_RETRY_COUNT {
-                    let repair = format!("{REPAIR_COMPARISON_PROMPT}\n\nRESPONSE:\n{content}");
+                    let repair = format!("{REPAIR_COMPARISON_PROMPT}\n\n原始论文材料：\n{input}\n\n待修复响应：\n{content}");
                     completion = self
                         .send_chat(
-                            REPAIR_COMPARISON_PROMPT,
+                            COMPARISON_SYSTEM_PROMPT,
                             &repair,
                             &model,
                             settings,
                             cancellation.clone(),
-                            StructuredOutputSchema::PaperComparison,
+                            StructuredOutputSchema::PaperComparison(input),
                         )
                         .await?;
                     content = completion.content.clone();
-                    if let Ok(value) = parse_comparison_response(&content) {
+                    if let Ok(value) = parse_comparison_response(&content)
+                        .and_then(|value| validate_comparison_evidence(value, input))
+                    {
                         return Ok(ProviderResponse {
                             value,
                             http_status: Some(completion.http_status),
@@ -537,7 +656,7 @@ impl LMStudioProvider {
                 LmStudioApi::NativeV1,
                 "models/load",
             )?)
-            .json(&serde_json::json!({ "model": model }))
+            .json(&serde_json::json!({ "model": model, "context_length": settings.model_context_length }))
             .send()
             .await
             .map_err(request_error)?;
@@ -568,7 +687,7 @@ impl LMStudioProvider {
         model: &str,
         settings: &AppSettings,
         cancellation: CancellationToken,
-        output_schema: StructuredOutputSchema,
+        output_schema: StructuredOutputSchema<'_>,
     ) -> AppResult<ChatCompletion> {
         let client = client(settings)?;
         let url = build_lm_studio_url(settings, LmStudioApi::OpenAi, "chat/completions")?;
@@ -585,6 +704,7 @@ impl LMStudioProvider {
             "model": model,
             "messages": [RequestMessage { role: "system", content: system }, RequestMessage { role: "user", content: user }],
             "temperature": settings.temperature,
+            "reasoning_effort": if settings.reasoning_effort == "off" { "none" } else { &settings.reasoning_effort },
             "max_tokens": settings.max_output_tokens,
             "response_format": response_format,
             "stream": false
@@ -1092,6 +1212,26 @@ mod tests {
         }
     }
 
+    #[test]
+    fn comparison_schema_constrains_quotes_to_their_own_paper() {
+        let sources = serde_json::json!({"papers":[
+            {"title":"A", "source_excerpt":"[TITLE]\nA\nThis paper uses queue-aware scheduling for fairness."},
+            {"title":"B", "source_excerpt":"[TITLE]\nB\nThis paper uses energy-efficient beamforming for sensing."}
+        ]}).to_string();
+        let schema = comparison_response_schema(&sources);
+        assert_eq!(schema["properties"]["evidence"]["minItems"], 2);
+        let choices = schema["properties"]["evidence"]["items"]["oneOf"]
+            .as_array()
+            .unwrap();
+        assert_eq!(choices[0]["properties"]["paper_number"]["const"], 1);
+        assert_eq!(choices[1]["properties"]["paper_number"]["const"], 2);
+        assert!(choices[0]["properties"]["quote"]["enum"][0]
+            .as_str()
+            .unwrap()
+            .contains("queue-aware"));
+        assert!(!choices[1].to_string().contains("queue-aware"));
+    }
+
     #[tokio::test]
     #[ignore = "requires a running local LM Studio server and a structured-output-capable model"]
     async fn live_minimal_structured_output_smoke() {
@@ -1195,7 +1335,7 @@ mod tests {
                 } else {
                     assert!(request.starts_with("POST /api/v1/models/load "));
                     assert!(request.contains(r#""model":"qwen/test""#));
-                    r#"{"type":"llm","model_instance_id":"qwen/test","load_time_seconds":0.1,"status":"loaded"}"#
+                    r#"{"type":"llm","instance_id":"qwen/test","load_time_seconds":0.1,"status":"loaded"}"#
                 };
                 let response = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",

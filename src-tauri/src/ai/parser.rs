@@ -72,11 +72,20 @@ pub fn parse_comparison_response(raw: &str) -> AppResult<PaperComparisonResult> 
     })?;
     value.common_points = unique_nonempty(value.common_points);
     value.key_differences = unique_nonempty(value.key_differences);
-    if value.common_points.is_empty()
-        || value.key_differences.is_empty()
-        || value.method_comparison.trim().is_empty()
-        || value.contribution_comparison.trim().is_empty()
-        || value.summary.trim().is_empty()
+    let narratives = [
+        &value.problem_comparison,
+        &value.scenario_comparison,
+        &value.method_comparison,
+        &value.contribution_comparison,
+        &value.results_comparison,
+        &value.limitations_comparison,
+        &value.summary,
+    ];
+    if value.schema_version != "2"
+        || value.common_points.is_empty()
+        || value.key_differences.len() < 2
+        || value.evidence.is_empty()
+        || narratives.iter().any(|item| item.trim().is_empty())
     {
         return Err(
             invalid_schema("Comparison JSON contains empty required fields.")
@@ -85,14 +94,62 @@ pub fn parse_comparison_response(raw: &str) -> AppResult<PaperComparisonResult> 
     }
     if !value.common_points.iter().all(|item| contains_cjk(item))
         || !value.key_differences.iter().all(|item| contains_cjk(item))
-        || !contains_cjk(&value.method_comparison)
-        || !contains_cjk(&value.contribution_comparison)
-        || !contains_cjk(&value.summary)
+        || !narratives.iter().all(|item| contains_cjk(item))
     {
         return Err(
             invalid_schema("Comparison fields must be written in Simplified Chinese.")
                 .stage("SCHEMA_VALIDATED"),
         );
+    }
+    Ok(value)
+}
+
+pub fn validate_comparison_evidence(
+    value: PaperComparisonResult,
+    input: &str,
+) -> AppResult<PaperComparisonResult> {
+    let source: serde_json::Value =
+        serde_json::from_str(input).map_err(|_| invalid_schema("Invalid comparison input."))?;
+    let papers = source["papers"]
+        .as_array()
+        .ok_or_else(|| invalid_schema("Missing comparison sources."))?;
+    let normalized = |text: &str| text.split_whitespace().collect::<String>();
+    let references = Regex::new(r"论文\s*([0-9]+)").expect("static regex");
+    let mut covered = std::collections::HashSet::new();
+    for difference in &value.key_differences {
+        let ids: std::collections::HashSet<usize> = references
+            .captures_iter(difference)
+            .filter_map(|capture| capture[1].parse().ok())
+            .collect();
+        if ids.len() < 2 || ids.iter().any(|id| *id == 0 || *id > papers.len()) {
+            return Err(invalid_schema(
+                "Each difference must identify at least two valid paper numbers.",
+            ));
+        }
+        covered.extend(ids);
+    }
+    if covered.len() != papers.len() {
+        return Err(invalid_schema(
+            "Differences must cover every selected paper.",
+        ));
+    }
+    for evidence in &value.evidence {
+        let paper = evidence
+            .paper_number
+            .checked_sub(1)
+            .and_then(|index| papers.get(index))
+            .ok_or_else(|| invalid_schema("Evidence refers to an unknown paper."))?;
+        let quote = normalized(&evidence.quote);
+        if !(20..=180).contains(&evidence.quote.chars().count())
+            || !normalized(paper["source_excerpt"].as_str().unwrap_or("")).contains(&quote)
+        {
+            return Err(invalid_schema(
+                "Evidence must be a verbatim passage from the corresponding paper excerpt.",
+            ));
+        }
+    }
+    if (1..=papers.len()).any(|id| !value.evidence.iter().any(|item| item.paper_number == id)) {
+        return Err(invalid_schema("Every paper must have source evidence."));
     }
     Ok(value)
 }
@@ -290,9 +347,31 @@ mod tests {
 
     #[test]
     fn validates_structured_comparison() {
-        let raw = r#"{"common_points":["研究目标相同"],"key_differences":["采用不同方法"],"method_comparison":"两者方法存在差异。","contribution_comparison":"两者贡献可以互补。","summary":"这是有依据的对比。"}"#;
-        let value = parse_comparison_response(raw).expect("comparison");
+        let value = comparison_fixture();
         assert_eq!(value.common_points, vec!["研究目标相同"]);
+    }
+
+    fn comparison_fixture() -> PaperComparisonResult {
+        parse_comparison_response(r#"{"schema_version":"2","common_points":["研究目标相同"],"key_differences":["论文1与论文2的方法不同。","论文1与论文2的实验条件不同。"],"problem_comparison":"研究问题存在差异。","scenario_comparison":"场景不同。","method_comparison":"两者方法存在差异。","contribution_comparison":"两者贡献可以互补。","results_comparison":"不同条件不可直接比较。","limitations_comparison":"提供的材料未报告。","evidence":[{"paper_number":1,"quote":"This paper proposes a queue-aware scheduler."},{"paper_number":2,"quote":"This paper optimizes energy using beamforming."}],"summary":"这是有依据的对比。"}"#).expect("comparison")
+    }
+
+    #[test]
+    fn comparison_rejects_invented_or_misattributed_evidence() {
+        let source = serde_json::json!({"papers":[
+            {"source_excerpt":"This paper proposes a queue-aware scheduler."},
+            {"source_excerpt":"This paper optimizes energy using beamforming."}
+        ]})
+        .to_string();
+        assert!(validate_comparison_evidence(comparison_fixture(), &source).is_ok());
+        let mut invented = comparison_fixture();
+        invented.evidence[0].quote = "This paper achieves a fictional perfect accuracy.".into();
+        assert!(validate_comparison_evidence(invented, &source).is_err());
+        let mut wrong_paper = comparison_fixture();
+        wrong_paper.evidence[0].paper_number = 2;
+        assert!(validate_comparison_evidence(wrong_paper, &source).is_err());
+        let mut vague = comparison_fixture();
+        vague.key_differences[0] = "两者关键词不同。".into();
+        assert!(validate_comparison_evidence(vague, &source).is_err());
     }
 
     #[test]

@@ -21,3 +21,10 @@ src-tauri/gen/
 .cargo-home/
 application/*.exe
 application/*.lnk
+handoff/
+.handoff-verify/
+/_TRANSFER_MANIFEST.txt
+**/paper-master-private/
+**/webvpn.txt
+**/*credentials*.txt
+**/*凭据*.txt

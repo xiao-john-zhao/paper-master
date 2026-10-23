@@ -3,7 +3,7 @@ import { paperAnalysisSchema, paperComparisonSchema, type AnalysisRequest, type 
 import type { AIProvider } from "./AIProvider";
 
 export class LMStudioProvider implements AIProvider {
-  readonly id = "lmstudio" as const;
+  constructor(readonly id: import("../../settings/types").AIProviderId = "lmstudio") {}
 
   checkConnection(settings?: import("../../settings/types").AppSettings) {
     return invokeCommand<ConnectionResult>("check_ai_connection", { settings });

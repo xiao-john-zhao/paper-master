@@ -1,7 +1,7 @@
 # Development plan
 
 - Current Version: `v0.3.1`
-- Current Phase: maintenance and bug fixing
+- Current Phase: local takeover and v0.3.2 feature verification
 - Current Stable Reference: `v0.3.1`
 - Next Target Version: `v0.3.2`
 
@@ -19,7 +19,16 @@ The project follows a stable-core / extensible-adapter design. A phase is comple
 | 8 | Unit/integration tests, diagnostics and failure handling | Complete |
 | 9 | UX polish, Windows build and demo validation | Complete |
 
+## Accepted v0.3.2 scope (2026-10-22)
+
+- Automatic local LM Studio analysis after first PDF import; durable sequential queue, cancellation, retry and interrupted-job recovery.
+- Model-generated semantic comparison of 2–8 papers, using summaries plus bounded original evidence, six difference dimensions and validated per-paper source quotes.
+- Current LM Studio API compatibility, explicit context/reasoning controls, reproducible local build and startup scripts.
+- Preserve source PDFs and existing databases. Validate deterministic tests, real read-only PDF import and real local-model inference before handoff. Version sources remain at v0.3.1 until a release/version decision.
+
 ## Definition of done
+
+2026-10-23 用户追加范围：PDF 打开修复；可选 Codex IEEE 检索与论文阅读总结；公开 PDF 下载、学校 WebVPN 试验下载；摘要清理与旧库迁移；作者身份/通信证据/本地关联论文；主程序之外的私有凭据 TXT 与迁移排除。学校订阅自动下载未完成端到端验证的部分须保留在独立“问题清单”文件夹，不能据仅打开入口宣称成功。
 
 - Frontend TypeScript build passes.
 - Rust checks and tests pass.

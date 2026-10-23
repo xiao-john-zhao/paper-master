@@ -4,6 +4,7 @@ type IconProps = SVGProps<SVGSVGElement>;
 const base = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
 
 export const SearchIcon = (props: IconProps) => <svg {...base} {...props}><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>;
+export const GraphIcon = (props:IconProps) => <svg {...base} {...props}><path d="M6 7 17 5M6 7l3 12M17 5l1 12M9 19l9-2M6 7l12 10"/><circle cx="6" cy="7" r="3" fill="currentColor" stroke="none"/><circle cx="17" cy="5" r="3" fill="currentColor" stroke="none"/><circle cx="9" cy="19" r="3" fill="currentColor" stroke="none"/><circle cx="18" cy="17" r="3" fill="currentColor" stroke="none"/></svg>;
 export const LibraryIcon = (props: IconProps) => <svg {...base} {...props}><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"/><path d="M4 5.5v16M8 7h8"/></svg>;
 export const ClockIcon = (props: IconProps) => <svg {...base} {...props}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>;
 export const SparkIcon = (props: IconProps) => <svg {...base} {...props}><path d="m12 3 1.2 4.2L17 9l-3.8 1.8L12 15l-1.2-4.2L7 9l3.8-1.8zM18.5 15l.7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7z"/></svg>;

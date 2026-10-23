@@ -3,8 +3,11 @@ import type { AppSettings, SettingsStorage } from "./types";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   ai_provider: "lmstudio",
+  auto_analyze_on_import: true,
+  reasoning_effort: "none",
+  model_context_length: 24_576,
   base_url: APP_CONFIG.defaultBaseUrl,
-  model: "deepseek-r1-distill-llama-8b",
+  model: "",
   temperature: APP_CONFIG.defaultTemperature,
   request_timeout_ms: APP_CONFIG.defaultTimeoutMs,
   max_analysis_input_characters: APP_CONFIG.maxAnalysisInputCharacters,
@@ -14,7 +17,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
 };
 
 export class InMemorySettingsStorage implements SettingsStorage {
-  private settings = structuredClone(DEFAULT_SETTINGS);
+  private settings: AppSettings;
+  constructor(initial: AppSettings = DEFAULT_SETTINGS) { this.settings = structuredClone(initial); }
   async get() { return structuredClone(this.settings); }
   async save(settings: AppSettings) { this.settings = structuredClone(settings); return this.get(); }
 }

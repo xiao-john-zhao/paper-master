@@ -60,7 +60,14 @@ impl AIProvider for MockAIProvider {
     ) -> AppResult<ProviderResponse<PaperComparisonResult>> {
         tokio::select! {
             _ = cancellation.cancelled() => Err(AppError::new(ErrorCode::AiCancelled, "AI comparison was cancelled.")),
-            _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => Ok(ProviderResponse { value: PaperComparisonResult { common_points: vec!["这些论文都关注本地、可靠的科研工作流。".into()], key_differences: vec!["各论文在上下文构建、证据检索与评估重点上采用了不同方案。".into()], method_comparison: "这些方法采用互补的信息选择与处理策略，并在输入组织方式上存在差异。".into(), contribution_comparison: "各论文分别在输入构建、证据排序或评估框架方面提供了可组合的贡献。".into(), summary: "这些研究具有互补性，可共同用于构建本地化的论文管理与分析流程。".into() }, http_status: None, retry_count: 0, method: None, endpoint: None, model: Some("paper-master-mock-v1".into()), response_diagnostics: None }),
+            _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => Ok(ProviderResponse { value: PaperComparisonResult {
+                schema_version: "2".into(), common_points: vec!["Mock 演示：这些论文都关注可靠科研工作流。".into()],
+                key_differences: vec!["Mock 演示：论文1与论文2的输入组织方式不同。".into(), "Mock 演示：论文1与论文2的评估重点不同。".into()],
+                problem_comparison: "Mock 演示：研究问题不同。".into(), scenario_comparison: "Mock 演示：适用条件不同。".into(),
+                method_comparison: "Mock 演示：方法互补。".into(), contribution_comparison: "Mock 演示：贡献互补。".into(),
+                results_comparison: "Mock 演示：实验条件不同，不可直接比较。".into(), limitations_comparison: "Mock 演示：均有适用范围限制。".into(),
+                evidence: vec![], summary: "Mock 演示数据，仅用于界面开发；切换 LM Studio 获取真实论文对比。".into()
+            }, http_status: None, retry_count: 0, method: None, endpoint: None, model: Some("paper-master-mock-v1".into()), response_diagnostics: None }),
         }
     }
 }
