@@ -84,7 +84,7 @@ export function PaperDetail({ paper, analyzing, onAnalyze, onCancel, onOpen, onD
         {paper.pdf_diagnostics && <div><span>Extracted</span><strong>{formatNumber(paper.pdf_diagnostics.extracted_character_count)} characters · {paper.pdf_diagnostics.page_count} pages</strong></div>}
       </div>
       <div className="detail-scroll">
-        <MetadataEditor key={paper.id} paper={paper} onSave={onSaveMetadata}/>
+        <MetadataEditor key={`metadata-${paper.id}`} paper={paper} onSave={onSaveMetadata}/>
         <section className="author-information overview-section"><h2>作者与关联论文</h2>
           <dl><dt>全部作者</dt><dd>{(authorContext?.authors ?? paper.authors).join(", ") || "未识别"}</dd><dt>第一作者（署名顺序）</dt><dd>{authorContext?.first_author ?? paper.authors[0] ?? "未识别"}</dd><dt>通信作者</dt><dd>{authorContext?.corresponding_authors.length ? authorContext.corresponding_authors.join(", ") : "原文未识别到明确标注"}</dd></dl>
           {authorContext?.corresponding_evidence.map((quote, i) => <blockquote key={i}>{quote}</blockquote>)}
@@ -97,7 +97,7 @@ export function PaperDetail({ paper, analyzing, onAnalyze, onCancel, onOpen, onD
         {paper.analysis_status === "queued" && <p role="status">已加入本地分析队列，等待前面的任务完成。</p>}
         {paper.analysis_status === "analyzing" && <p role="status">所选 AI 服务正在读取和概括论文内容，完成后自动保存。</p>}
         {paper.analysis_error && <p role="alert" className="analysis-error">{paper.analysis_error}</p>}
-        <AnalysisVersions key={paper.id} paper={paper} service={versionsService} onChanged={onChanged}/>
+        <AnalysisVersions key={`analysis-${paper.id}`} paper={paper} service={versionsService} onChanged={onChanged}/>
         <AnalysisContent paper={paper}/>
       </div>
     </section>

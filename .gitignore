@@ -6,6 +6,7 @@ src-tauri/target/
 *.log
 logs/
 data/
+library-cache/
 *.db
 *.db-shm
 *.db-wal

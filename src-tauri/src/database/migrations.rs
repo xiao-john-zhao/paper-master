@@ -169,6 +169,47 @@ CREATE TABLE active_analyses (
 "#,
     ),
     (8, "SELECT 1;"),
+    (
+        9,
+        r#"
+CREATE TABLE IF NOT EXISTS library_cache_pending (paper_id TEXT PRIMARY KEY NOT NULL);
+CREATE TRIGGER IF NOT EXISTS cache_paper_insert AFTER INSERT ON papers BEGIN
+ INSERT INTO library_cache_pending VALUES(new.id) ON CONFLICT(paper_id) DO NOTHING;
+END;
+CREATE TRIGGER IF NOT EXISTS cache_paper_update AFTER UPDATE ON papers BEGIN
+ INSERT INTO library_cache_pending VALUES(new.id) ON CONFLICT(paper_id) DO NOTHING;
+END;
+CREATE TRIGGER IF NOT EXISTS cache_paper_delete AFTER DELETE ON papers BEGIN
+ INSERT INTO library_cache_pending VALUES(old.id) ON CONFLICT(paper_id) DO NOTHING;
+END;
+CREATE TRIGGER IF NOT EXISTS cache_version_insert AFTER INSERT ON analysis_versions BEGIN
+ INSERT INTO library_cache_pending VALUES(new.paper_id) ON CONFLICT(paper_id) DO NOTHING;
+END;
+CREATE TRIGGER IF NOT EXISTS cache_version_update AFTER UPDATE ON analysis_versions BEGIN
+ INSERT INTO library_cache_pending VALUES(new.paper_id) ON CONFLICT(paper_id) DO NOTHING;
+END;
+CREATE TRIGGER IF NOT EXISTS cache_version_delete AFTER DELETE ON analysis_versions BEGIN
+ INSERT INTO library_cache_pending VALUES(old.paper_id) ON CONFLICT(paper_id) DO NOTHING;
+END;
+CREATE TRIGGER IF NOT EXISTS cache_active_insert AFTER INSERT ON active_analyses BEGIN
+ INSERT INTO library_cache_pending VALUES(new.paper_id) ON CONFLICT(paper_id) DO NOTHING;
+END;
+CREATE TRIGGER IF NOT EXISTS cache_active_update AFTER UPDATE ON active_analyses BEGIN
+ INSERT INTO library_cache_pending VALUES(new.paper_id) ON CONFLICT(paper_id) DO NOTHING;
+END;
+CREATE TRIGGER IF NOT EXISTS cache_active_delete AFTER DELETE ON active_analyses BEGIN
+ INSERT INTO library_cache_pending VALUES(old.paper_id) ON CONFLICT(paper_id) DO NOTHING;
+END;
+CREATE TRIGGER IF NOT EXISTS cache_metadata_insert AFTER INSERT ON settings
+ WHEN new.key LIKE 'metadata-edited:%' BEGIN
+ INSERT INTO library_cache_pending VALUES(substr(new.key,17)) ON CONFLICT(paper_id) DO NOTHING;
+END;
+CREATE TRIGGER IF NOT EXISTS cache_metadata_update AFTER UPDATE ON settings
+ WHEN new.key LIKE 'metadata-edited:%' BEGIN
+ INSERT INTO library_cache_pending VALUES(substr(new.key,17)) ON CONFLICT(paper_id) DO NOTHING;
+END;
+"#,
+    ),
 ];
 
 pub fn run_migrations(connection: &mut Connection) -> AppResult<i64> {
@@ -375,10 +416,10 @@ mod tests {
     #[test]
     fn migrations_are_idempotent() {
         let mut connection = Connection::open_in_memory().expect("in-memory database");
-        assert_eq!(run_migrations(&mut connection).expect("first migration"), 8);
+        assert_eq!(run_migrations(&mut connection).expect("first migration"), 9);
         assert_eq!(
             run_migrations(&mut connection).expect("second migration"),
-            8
+            9
         );
         let paper_table: String = connection
             .query_row(
@@ -411,7 +452,7 @@ mod tests {
         connection
             .pragma_update(None, "user_version", 2)
             .expect("version");
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 8);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 9);
         let path: String = connection
             .query_row("SELECT file_path FROM papers WHERE id='p1'", [], |row| {
                 row.get(0)
@@ -434,7 +475,7 @@ mod tests {
             .pragma_update(None, "user_version", 3)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 8);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 9);
         let modules: (String, Option<String>, String) = connection
             .query_row(
                 "SELECT analysis_schema_version,research_scenario,key_innovations_json FROM papers WHERE id='p1'",
@@ -460,7 +501,7 @@ mod tests {
             .pragma_update(None, "user_version", 4)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 8);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 9);
         let venue: Option<String> = connection
             .query_row(
                 "SELECT publication_venue FROM papers WHERE id='p1'",
@@ -486,7 +527,7 @@ mod tests {
             .pragma_update(None, "user_version", 4)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 8);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 9);
         let venue: Option<String> = connection
             .query_row(
                 "SELECT publication_venue FROM papers WHERE id='p1'",
@@ -512,7 +553,7 @@ mod tests {
             .pragma_update(None, "user_version", 4)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 8);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 9);
         let title: String = connection
             .query_row("SELECT title FROM papers WHERE id='p1'", [], |row| {
                 row.get(0)

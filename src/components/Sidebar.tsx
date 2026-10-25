@@ -8,14 +8,13 @@ interface Props {
   filter: LibraryFilter;
   tags: Array<{ name: string; count: number }>;
   activeTag?: string;
-  developmentMode: boolean;
   onlineMode?: boolean;
   onView(view: AppView): void;
   onFilter(filter: LibraryFilter): void;
   onTag(tag?: string): void;
 }
 
-export function Sidebar({ view, filter, tags, activeTag, developmentMode, onlineMode, onView, onFilter, onTag }: Props) {
+export function Sidebar({ view, filter, tags, activeTag, onlineMode, onView, onFilter, onTag }: Props) {
   const nav = (value: LibraryFilter, icon: React.ReactNode, label: string) => (
     <button className={`side-item ${view === "library" && filter === value && !activeTag ? "active" : ""}`} onClick={() => { onView("library"); onTag(undefined); onFilter(value); }}>
       {icon}<span>{label}</span>
@@ -46,7 +45,7 @@ export function Sidebar({ view, filter, tags, activeTag, developmentMode, online
       </div>
       <div className="sidebar-footer">
         <button className={`side-item ${view === "settings" ? "active" : ""}`} onClick={() => onView("settings")}><SettingsIcon/><span>Settings</span></button>
-        {developmentMode && <button className={`side-item ${view === "diagnostics" ? "active" : ""}`} onClick={() => onView("diagnostics")}><DiagnosticsIcon/><span>Diagnostics</span></button>}
+        <button className={`side-item ${view === "diagnostics" ? "active" : ""}`} onClick={() => onView("diagnostics")}><DiagnosticsIcon/><span>Diagnostics</span></button>
         <div className="local-badge"><span className="status-dot online"/>{onlineMode ? "Codex 联网已授权" : "本地分析"}</div>
       </div>
     </aside>

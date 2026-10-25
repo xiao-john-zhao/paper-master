@@ -8,12 +8,88 @@ use crate::{
 };
 use std::path::PathBuf;
 
+fn shared_data_directory() -> AppResult<PathBuf> {
+    std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .map(|p| p.join("app.papermaster.desktop"))
+        .ok_or_else(|| {
+            crate::error::AppError::new(
+                crate::error::ErrorCode::FileNotFound,
+                "无法定位当前用户的固定应用数据目录。",
+            )
+        })
+}
+
+/// Maintenance entry point; only counts/status are emitted, never paper contents.
+pub fn sync_library_cache() -> AppResult<()> {
+    let directory = shared_data_directory()?;
+    sync_library_cache_at(&directory)
+}
+
+fn sync_library_cache_at(directory: &std::path::Path) -> AppResult<()> {
+    std::fs::create_dir_all(&directory).map_err(|_| {
+        crate::error::AppError::new(
+            crate::error::ErrorCode::DatabaseWriteFailed,
+            "应用数据目录不可用。",
+        )
+    })?;
+    let path = directory.join("paper-master.db");
+    let logger = AppLogger::new(&directory).map_err(|_| {
+        crate::error::AppError::new(
+            crate::error::ErrorCode::DatabaseWriteFailed,
+            "诊断目录不可用。",
+        )
+    })?;
+    let database = Database::open_with_backup(&path, &logger)?;
+    let status = database.sync_cache()?;
+    let (papers, analyzed) = SqlitePaperRepository::new(&*database.connection()?).counts()?;
+    let report = serde_json::json!({ "application_version": env!("CARGO_PKG_VERSION"), "papers": papers, "analyzed": analyzed, "integrity": database.integrity_check()?, "cache": status });
+    // Private, local report alongside the cache; no content is sent to diagnostic logs.
+    std::fs::write(
+        directory.join("library-cache-status.json"),
+        serde_json::to_vec_pretty(&report).unwrap(),
+    )
+    .map_err(|_| {
+        crate::error::AppError::new(
+            crate::error::ErrorCode::DatabaseWriteFailed,
+            "缓存已保存，但状态报告未写入。",
+        )
+    })?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn cache_maintenance_backs_up_then_reopens_populated_database_without_losing_rows() {
+        let root =
+            std::env::temp_dir().join(format!("paper-master-maintenance-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        {
+            let mut c = rusqlite::Connection::open(root.join("paper-master.db")).unwrap();
+            crate::database::migrations::run_migrations(&mut c).unwrap();
+            c.execute("INSERT INTO papers(id,file_path,file_name,title,ai_analyzed,ai_summary,created_at,updated_at) VALUES('p','p.pdf','p.pdf','Title',1,'保存的内容','now','now')", []).unwrap();
+            c.execute_batch("PRAGMA user_version=8").unwrap();
+        }
+        super::sync_library_cache_at(&root).unwrap();
+        let c = rusqlite::Connection::open(root.join("paper-master.db")).unwrap();
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM papers", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        let report: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("library-cache-status.json")).unwrap())
+                .unwrap();
+        assert_eq!(report["papers"], 1);
+        drop(c);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
 pub fn execute(args: &[String]) -> AppResult<()> {
     let folder = PathBuf::from(&args[1]);
-    let data_dir = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir)
-        .join("app.papermaster.desktop");
+    let data_dir = shared_data_directory()?;
     std::fs::create_dir_all(&data_dir).map_err(|_| {
         crate::error::AppError::new(
             crate::error::ErrorCode::DatabaseWriteFailed,
@@ -30,7 +106,7 @@ pub fn execute(args: &[String]) -> AppResult<()> {
             )
         })?;
         let backup = data_dir.join(format!(
-            "paper-master-before-v0.4.0-{}.db",
+            "paper-master-before-archive-{}.db",
             chrono::Utc::now().format("%Y%m%dT%H%M%SZ")
         ));
         conn.execute("VACUUM INTO ?1", [backup.to_string_lossy().as_ref()])
@@ -110,7 +186,7 @@ pub fn execute(args: &[String]) -> AppResult<()> {
             .collect::<AppResult<Vec<_>>>()?
     };
     let team_links = crate::services::authors::team_links(&library);
-    let report = serde_json::json!({"potential_team_links":team_links,"version":"0.4.0","source":folder,"data_directory":data_dir,"archived":archived,"new_imports":summary.imported.len(),"existing":summary.duplicates.len(),"failures":summary.failed,"needs_text_review":no_text,"reimport_duplicates":duplicate.duplicates.len(),"reimport_new":duplicate.imported.len(),"integrity":database.integrity_check()?,"entries":entries});
+    let report = serde_json::json!({"potential_team_links":team_links,"version":env!("CARGO_PKG_VERSION"),"source":folder,"data_directory":data_dir,"archived":archived,"new_imports":summary.imported.len(),"existing":summary.duplicates.len(),"failures":summary.failed,"needs_text_review":no_text,"reimport_duplicates":duplicate.duplicates.len(),"reimport_new":duplicate.imported.len(),"integrity":database.integrity_check()?,"entries":entries});
     let report_path = args
         .get(2)
         .map(PathBuf::from)
@@ -132,10 +208,7 @@ pub fn execute(args: &[String]) -> AppResult<()> {
 }
 
 pub fn analyze_one(id: &str) -> AppResult<()> {
-    let directory = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir)
-        .join("app.papermaster.desktop");
+    let directory = shared_data_directory()?;
     let logger = AppLogger::new(&directory).map_err(|_| {
         crate::error::AppError::new(
             crate::error::ErrorCode::DatabaseWriteFailed,

@@ -45,6 +45,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
+            commands::library_cache::get_library_cache_status,
+            commands::library_cache::sync_library_cache,
+            commands::library_cache::recover_library_cache,
+            commands::library_cache::open_library_cache_folder,
             commands::analysis_versions::list_analysis_versions,
             commands::analysis_versions::select_analysis_version,
             commands::analysis_versions::edit_analysis_version,

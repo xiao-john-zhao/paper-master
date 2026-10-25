@@ -15,15 +15,16 @@ import { createApplicationServices } from "../services/ApplicationServices";
 import { createOperationId } from "../services/PaperService";
 import type { AppSettings } from "../settings/types";
 import { normalizeAppError } from "../types/errors";
-import { APP_CONFIG } from "../config/appConfig";
 import { uiLogger } from "../diagnostics/uiLogger";
 import { ResearchPage } from "../pages/ResearchPage";
 import type { AuthorContext } from "../domain/paper/AuthorContext";
 import { TaskCenter,InlineTaskProgress } from "../components/TaskProgress";
 import { progressService,type TaskUpdate } from "../services/ProgressService";
 import { RelationshipGraphPage } from "../pages/RelationshipGraphPage";
+import { LibraryCacheService } from "../services/LibraryCacheService";
 
 const services = createApplicationServices();
+const libraryCache = new LibraryCacheService();
 
 export function App() {
   const [view, setView] = useState<AppView>("library");
@@ -34,6 +35,7 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string>();
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [cacheWarning, setCacheWarning] = useState("");
   const [onlineMode, setOnlineMode] = useState(false);
   const [authorContext, setAuthorContext] = useState<AuthorContext>();
   const [authorError, setAuthorError] = useState<string>();
@@ -61,6 +63,7 @@ export function App() {
     try {
       const result = await services.paperService.list({ text: search, tag, filter });
       setPapers(result);
+      if (services.tauri) void libraryCache.status().then(status => setCacheWarning(status.last_error || (status.unreadable ? `${status.unreadable} 份论文缓存需要核对，请打开 Diagnostics 查看。` : ""))).catch(() => undefined);
       setSelectedId((current) => result.some((paper) => paper.id === current) ? current : result[0]?.id);
     } catch (error) {
       const appError = normalizeAppError(error);
@@ -231,10 +234,11 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar view={view} filter={filter} tags={tags} activeTag={tag} onlineMode={onlineMode} developmentMode={APP_CONFIG.developmentMode || !services.tauri} onView={setView} onFilter={setFilter} onTag={setTag}/>
+      <Sidebar view={view} filter={filter} tags={tags} activeTag={tag} onlineMode={onlineMode} onView={setView} onFilter={setFilter} onTag={setTag}/>
       {view === "library" && <div className="library-layout">
         <section className="library-column">
           <LibraryToolbar search={search} compareCount={compareIds.size} loading={loading} onSearch={setSearch} onImportPdf={() => void importPapers(false)} onImportFolder={() => void importPapers(true)} onCompare={() => void compareSelected()}/>
+          {cacheWarning && <div className="library-import-progress" role="alert"><p>{cacheWarning}</p><button className="button secondary" onClick={() => setView("diagnostics")}>查看论文缓存</button></div>}
           {importRequestId && <div className="library-import-progress"><InlineTaskProgress id={importRequestId}/></div>}
           {(filter !== "all" || tag) && <div className="active-filter"><span>Showing {tag ? `tag: ${tag}` : filter === "recent" ? "recently added" : "AI analyzed"}</span><button onClick={() => { setTag(undefined); setFilter("all"); }}>Clear</button></div>}
           <PaperList papers={papers} selectedId={selectedId} compareIds={compareIds} loading={loading} onSelect={setSelectedId} onToggleCompare={toggleCompare}/>

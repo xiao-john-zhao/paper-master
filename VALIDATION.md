@@ -1,3 +1,13 @@
+# v0.4.1 verification — 2026-10-25
+
+- `pnpm test`: 22 passed. `pnpm build` and the production Tauri before-build frontend step passed with 151 modules.
+- `cargo test --locked --manifest-path src-tauri/Cargo.toml`: 78 passed, 0 failed, 7 external live tests ignored. Eight new tests cover cache recovery and the backup/maintenance path; the default suite does not call external models.
+- Real library: 439 papers, 882 saved result versions. All paper rows, version rows and active selections match the pre-migration logical SHA-256 digests. Schema upgraded from 8 to 9, integrity `ok`, cache pending 0, unreadable 0. Cache files are kept under the stable APPDATA directory, outside the repository.
+- Full cache-only recovery: copied only JSON cache to an isolated profile with no database, then ran the production `--sync-cache` command from the Windows directory. Recovered 439 papers + 882 versions (1,321 records), with exact original paper/version/selection digests; integrity `ok`, foreign_key_check empty, pending 0, unreadable 0. Private reports: `data/validation/v0.4.1-cache-check.json` and `v0.4.1-cache-only-recovery.json`.
+- Release EXE and NSIS x64 installer built successfully. Unified and versioned EXE are under application/. Version source / Cargo.lock checks, Rust formatting and Git whitespace checks pass. The original v0.4.0 EXE is preserved under handoff/release-backups/.
+- First actual maintenance run unexpectedly read an empty database after closing the backup connection. The complete pre-migration SQLite backup retained every paper/version; it was restored immediately, with exact logical digests confirmed. This did not reproduce on the isolated populated copy or subsequent actual runs. The maintenance path now reuses one SQLite connection through backup/migrations/export, refuses implicit recreation of an existing database, and checks before/after migration counts. No specific external/WAL cause is claimed. All backup and diagnostic files remain private.
+- Browser preview automation could not discover a Codex IAB backend. Native Computer Use confirmed the actual 439-paper library and editing controls; a release-only hidden Diagnostics navigation entry was found and made always visible so cache controls are accessible. Final native checks: Production 0.4.1 / schema 9 / 439 papers, Diagnostics cache controls visible, sync success message, recovery adds 0 duplicates, metadata-edit button count remains 1 after successive paper switches. Final live library has 883 result versions (one new version appeared during acceptance); all 883 are cached with 0 pending and integrity ok.
+
 # v0.4.0 verification — 2026-10-24
 
 - Frontend: 21 tests passed; TypeScript/Vite production build passed (149 modules).

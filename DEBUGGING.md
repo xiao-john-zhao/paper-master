@@ -1,3 +1,14 @@
+# v0.4.1 论文结果恢复
+
+先在桌面应用的 Diagnostics → 论文文件缓存查看固定目录、待同步数及错误。结果在论文详情编辑，保存后缓存自动更新。
+
+- 打开不同版本/不同目录：同一用户保持 `app.papermaster.desktop` 应用标识，使用同一个 `%APPDATA%` 数据库；v0.4.1 起启动自动读取 `library-cache/v1` 补回缺失记录。
+- 待同步数非零：检查空间/权限后点击“立即同步缓存”；成功保存的 SQLite 结果不会因缓存错误丢弃。
+- 缺少记录：点击“从缓存补回缺失记录”。已有人工修改优先；用户删除的记录有删除标记，不自动恢复。
+- 单份 JSON 损坏或缺失：尝试上一份 `.json.bak`，原损坏文件保留；未来格式不覆盖。备份也不可用时只跳过该篇并显示数量。
+- SQLite 本身损坏：保留原库并单独处理，不静默重建。`--sync-cache` 在迁移前会创建本地数据库备份；不要把缓存目录当作临时文件清理。
+- 只看到演示论文：浏览器预览使用内存演示库。请启动 `application/paper-master.exe`。
+
 # v0.4.0 notes
 
 - When Codex is selected but networking is disabled, analysis uses local LM Studio. Switch history in the paper result selector; re-analysis adds a version.

@@ -1,3 +1,11 @@
+# v0.4.1 接管要点（2026-10-25）
+
+当前版本 v0.4.1，下一目标 v0.4.2。缓存目录固定为 `%APPDATA%/app.papermaster.desktop/library-cache/v1/`，与发布版本号无关。迁移 9 使用 SQLite 触发器维护 `library_cache_pending`；所有 Database 连接的作用域结束后自动同步已提交变化。失败不能清空待同步队列或隐藏数据库内容。
+
+启动先同步旧版未导出的写入/删除，再逐篇补回缺失记录，最后只为缺少缓存的论文初始化文件。数据库中已有字段、版本修订和选择优先。缓存保留结果原文、人工修订、元数据编辑标记、提取文字及删除标记；不要将 API 设置、凭据、完整提示词或 reasoning 写入缓存或日志。新文件格式必须演进 `cache_schema_version` 并保留旧版读取；不可用应用版本号命名个人数据目录。
+
+本机维护入口 `application/paper-master.exe --sync-cache` 先通过 SQLite VACUUM INTO 备份，再生成缓存。GUI 的 Diagnostics → 论文文件缓存支持同步/恢复/打开文件夹；论文详情保留编辑接口。历史 EXE 继续读共享数据库，但不具备新 JSON 恢复代码。详见 [v0.4.1 记录](docs/2026-10-25-v0.4.1-persistent-cache.md)。下文为历史接管记录。
+
 # v0.4.0 接管要点（2026-10-24）
 
 本轮在 `feature/unified-library-v0.4.0` 实施，完成后本地 fast-forward 更新 `main`，发布标签 `v0.4.0`。原有改动已保存于 `03a6755`。当前统一启动入口 `application/paper-master.exe`；联网开关复用 privacy_mode，关闭时 Codex 配置回退本机 LM Studio，所有外部入口检查已保存开关。迁移 7 新增多结果版本表和当前选择，迁移 8 清理自动提取的 IEEE 会员称谓并保留人工元数据；禁止将编辑后的当前投影当成唯一模型结果覆盖其他记录。

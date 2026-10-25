@@ -1,3 +1,10 @@
+# v0.4.1 persistent recovery cache
+
+- `database/library_cache.rs` owns the version-neutral v1 JSON format, atomic replacement, previous generation, deletion tombstones, validation, merge and recovery. Files sit beside the stable database under `library-cache/v1`, independent of binary version/cwd. Papers include extracted text to restore search/evidence without requiring an accessible source PDF; provider credentials and settings are excluded.
+- Ordered migration 9 creates `library_cache_pending` and insert/update/delete triggers for papers, analysis versions and active selections, plus metadata-edit markers. `DatabaseConnection` dereferences the SQLite connection and flushes committed outbox work before releasing the process lock. A SQLite writer reservation serializes snapshot/acknowledgement across processes; failed exports retain pending work and surface through `CacheStatus` without undoing the successful paper save.
+- At startup flush pending writes/deletions first, merge missing records only, then initialize missing files. Existing database revisions and metadata win; an existing paper with no analysis can recover its cached selected result. Recover each entry in a transaction, isolate malformed/future formats, try `.json.bak`, and never reconstruct or replace a damaged database silently. Deletion backups are also tombstones.
+- `LibraryCacheService` is the frontend boundary for status/sync/recovery/open-folder commands. `LibraryCachePanel` exposes these actions in Diagnostics independently of AI connectivity. The library shows cache failures during its existing refresh cycle. Existing AnalysisVersionsService/MetadataEditor remain the editing interfaces.
+
 # v0.4.0 additions
 
 Migration 8 cleans spurious IEEE membership author fragments in automatically extracted metadata; manually edited metadata is preserved.

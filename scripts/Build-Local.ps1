@@ -9,6 +9,7 @@ $env:Path = "$(Join-Path $env:USERPROFILE '.cargo\bin');$env:Path"
 $env:CARGO_BUILD_JOBS = '2'
 Push-Location $projectRoot
 try {
+    & (Join-Path $PSScriptRoot 'Check-Version.ps1')
     foreach ($required in @('node', 'pnpm', 'cargo')) {
         if (-not (Get-Command $required -ErrorAction SilentlyContinue)) { throw "缺少 $required，请先按 README 安装开发环境。" }
     }
@@ -21,7 +22,15 @@ try {
     if ($NoInstaller) { pnpm tauri build --ci --no-bundle -- --locked }
     else { pnpm tauri build --ci -- --locked }
     if ($LASTEXITCODE -ne 0) { throw '桌面应用构建失败。' }
-    Copy-Item -LiteralPath (Join-Path $projectRoot 'src-tauri\target\release\paper-master.exe') -Destination (Join-Path $projectRoot 'application\paper-master.exe')
+    $releaseVersion = (Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json).version
+    $entryPath = Join-Path $projectRoot 'application\paper-master.exe'
+    if (Test-Path -LiteralPath $entryPath) {
+        $backupDirectory = Join-Path $projectRoot 'handoff\release-backups'
+        [IO.Directory]::CreateDirectory($backupDirectory) | Out-Null
+        Copy-Item -LiteralPath $entryPath -Destination (Join-Path $backupDirectory "paper-master-before-$releaseVersion-$(Get-Date -Format yyyyMMdd-HHmmss).exe")
+    }
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'src-tauri\target\release\paper-master.exe') -Destination (Join-Path $projectRoot "application\paper-master-v$releaseVersion.exe")
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'src-tauri\target\release\paper-master.exe') -Destination $entryPath
     Write-Host '本机应用已生成：application\paper-master.exe'
 }
 finally { Pop-Location }

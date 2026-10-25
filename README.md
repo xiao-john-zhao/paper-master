@@ -1,3 +1,13 @@
+# v0.4.1 当前入口（2026-10-25）
+
+启动 `application/paper-master.exe`。论文、全部模型整理版本、人工修订及原始生成文字自动保存到固定文件夹 `%APPDATA%/app.papermaster.desktop/library-cache/v1/`，不依赖 EXE 名称、版本、安装目录或工作目录。启动自动补回缺失论文和分析；元数据及结果仍可在论文详情中编辑。
+
+Diagnostics → **论文文件缓存** 提供打开文件夹、立即同步、从缓存补回缺失记录。每篇独立 JSON，原子替换并保留上一份 `.json.bak`，数据库写入成功但文件写入失败时保留待同步队列并显示提示。缓存是持久恢复文件，不会按临时缓存自动清理。
+
+同一 Windows 用户的历史版本继续读取相同 SQLite 数据库；v0.4.1 起支持直接从 JSON 缓存恢复。历史二进制自身不会新增 JSON 读取能力。浏览器预览仍使用演示数据。迁移电脑时单独复制应用数据目录（包含缓存），源 PDF 路径变化可重新关联。
+
+发布与缓存格式说明：[v0.4.1 记录](docs/2026-10-25-v0.4.1-persistent-cache.md)。以下 v0.4.0 及更早内容为历史记录。
+
 # v0.4.0 当前入口（2026-10-24）
 
 启动 `application/paper-master.exe` 或 `pwsh -File scripts/Start-Local.ps1`。仅提供一个应用，联网在 Settings 开关中控制并保存；原有 local/updated 文件仅保留为回退备份。支持多模型结果保留/切换、全部整理文字和元数据编辑、同义关键词归一及潜在同团队关系图。
@@ -8,7 +18,7 @@
 
 # paper-master
 
-`paper-master` 是一个 Windows 本地优先的研究论文管理桌面应用，使用 Tauri 2、React、TypeScript、Rust 和 SQLite 构建。当前版本为 `v0.4.0`，下一维护目标为 `v0.4.1`。
+`paper-master` 是一个 Windows 本地优先的研究论文管理桌面应用，使用 Tauri 2、React、TypeScript、Rust 和 SQLite 构建。当前版本为 `v0.4.1`，下一维护目标为 `v0.4.2`。
 
 导入的 PDF 始终保留在原位置；应用不会移动或删除原文件。论文元数据、分析结果和诊断信息保存在本机。项目支持通过本机 LM Studio 服务执行 AI 分析，但 LM Studio 是可选的外部运行时，不属于项目依赖包。
 

@@ -32,6 +32,7 @@ pub mod database;
 pub mod diagnostics;
 pub mod graph;
 pub mod import;
+pub mod library_cache;
 pub mod paper;
 pub mod research;
 pub mod settings;

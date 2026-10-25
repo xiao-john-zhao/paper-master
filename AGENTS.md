@@ -44,5 +44,5 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ## 文档和发布
 
 - 行为、版本、测试基线或运行方式变化时，同步更新 `README.md`、`CHANGELOG.md`、`VALIDATION.md` 或 `CODEX_HANDOFF.md` 中相关部分。
-- 当前版本为 `v0.4.0`，下一维护目标版本为 `v0.4.1`。不要在没有版本决策的情况下修改三个版本源：`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`。
+- 当前版本为 `v0.4.1`，下一维护目标版本为 `v0.4.2`。不要在没有版本决策的情况下修改三个版本源：`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`。
 - 使用 `scripts/New-TransferPackage.ps1` 生成迁移包。生成的 `handoff/` 目录不进入 Git。
