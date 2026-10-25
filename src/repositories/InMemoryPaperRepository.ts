@@ -105,6 +105,7 @@ function matches(paper: Paper, query: PaperQuery) {
   if (query.filter === "analyzed" && paper.analysis_status !== "analyzed") return false;
   if (query.filter === "recent" && Date.now() - new Date(paper.created_at).getTime() > day * 7) return false;
   if (query.tag && !paper.tags.some((tag) => tag.toLowerCase() === query.tag!.toLowerCase())) return false;
+  if (query.tags?.some(selected => !paper.tags.some(tag => tag.trim().toLowerCase() === selected.trim().toLowerCase()))) return false;
   const needle = query.text?.trim().toLowerCase();
   if (!needle) return true;
   return [paper.title, paper.publication_venue ?? "", paper.authors.join(" "), paper.abstract ?? "", paper.analysis?.ai_summary ?? "", paper.analysis?.research_problem ?? "", paper.analysis?.research_scenario ?? "", paper.analysis?.core_method ?? "", paper.analysis?.key_innovations?.join(" ") ?? "", paper.analysis?.key_contributions.join(" ") ?? "", paper.tags.join(" ")]

@@ -14,6 +14,7 @@ export class PaperService {
   }
 
   get(id: string) { return this.repository.findById(id); }
+  queueMissing(paperIds: string[]) { return invokeCommand<{queued:number;skipped:number;no_text:number}>("queue_missing_analyses", {paperIds}); }
   async editMetadata(id:string,metadata:import("../domain/paper/Paper").EditableMetadata) {
     if (typeof window!=="undefined" && "__TAURI_INTERNALS__" in window) return invokeCommand<Paper>("edit_paper_metadata",{id,metadata});
     const paper=await this.get(id);if(!paper)throw new Error("论文不存在。");return this.repository.update({...paper,...metadata,updated_at:new Date().toISOString()});

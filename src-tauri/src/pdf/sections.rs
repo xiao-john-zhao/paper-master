@@ -29,6 +29,11 @@ pub fn detect_sections(text: &str) -> (DocumentSections, Vec<String>) {
             content.push(inline.as_str());
         }
         content.extend(lines[line_index + 1..end].iter().copied());
+        if *kind == SectionKind::Conclusion {
+            if let Some(end) = content.iter().position(|line| is_back_matter_heading(line)) {
+                content.truncate(end);
+            }
+        }
         let value = if *kind == SectionKind::Abstract {
             clean_abstract(&content.join("\n"))
         } else {
@@ -60,6 +65,16 @@ fn classify_heading(line: &str) -> Option<(SectionKind, String)> {
     let trimmed = line.trim();
     if trimmed.is_empty() {
         return None;
+    }
+    // PDF small-caps often extract as "C ONCLUSION" or fully spaced letters.
+    // Match the entire heading, never a sentence mentioning a conclusion.
+    static CONCLUSION: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let compact = trimmed
+        .split_whitespace()
+        .collect::<String>()
+        .to_lowercase();
+    if CONCLUSION.get_or_init(|| Regex::new(r"^(?:(?:[ivxlc]+|[0-9]+)[.):：]?)?(?:conclusions?(?:and(?:futurework|futuredirections|discussion|perspectives))?|concludingremarks|结论与展望|结束语|结语)$").unwrap()).is_match(&compact) {
+        return Some((SectionKind::Conclusion, String::new()));
     }
     static CHINESE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
     let chinese = CHINESE.get_or_init(|| Regex::new(r"^(?:(?:第[一二三四五六七八九十0-9]+[章节]|[0-9]+[.、]?)\s*)?(摘\s*要|引\s*言|绪\s*论|结\s*论|总\s*结)\s*[：:—–-]?\s*(.*)$").unwrap());
@@ -110,6 +125,12 @@ fn classify_heading(line: &str) -> Option<(SectionKind, String)> {
         }
     }
     None
+}
+
+fn is_back_matter_heading(line: &str) -> bool {
+    static END: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let compact = line.split_whitespace().collect::<String>().to_lowercase();
+    END.get_or_init(|| Regex::new(r"^(?:(?:[ivxlc]+|[0-9]+)[.):：]?)?(?:references|bibliography|acknowledg(?:e)?ments?|appendix[a-z]?|appendices|参考文献|致谢|附录[a-z]?)$").unwrap()).is_match(&compact)
 }
 
 /// Never use the paper's front matter as an abstract fallback.
@@ -176,6 +197,23 @@ mod tests {
     fn avoids_paragraph_mentions_as_headings() {
         let (sections, _) = detect_sections("The introduction explains our method in detail.");
         assert!(sections.introduction.is_none());
+        for heading in [
+            "V. C ONCLUSION",
+            "6. C O N C L U S I O N S",
+            "VI. CONCLUSION AND FUTURE WORK",
+            "CONCLUDING REMARKS",
+        ] {
+            let (sections, _) = detect_sections(&format!(
+                "{heading}\nActual conclusion.\nREFERENCES\nNot a conclusion."
+            ));
+            assert_eq!(sections.conclusion.as_deref(), Some("Actual conclusion."));
+        }
+        assert!(
+            detect_sections("In conclusion, we discuss several results.")
+                .0
+                .conclusion
+                .is_none()
+        );
     }
 
     #[test]

@@ -210,6 +210,7 @@ CREATE TRIGGER IF NOT EXISTS cache_metadata_update AFTER UPDATE ON settings
 END;
 "#,
     ),
+    (10, "SELECT 1;"),
 ];
 
 pub fn run_migrations(connection: &mut Connection) -> AppResult<i64> {
@@ -242,6 +243,9 @@ pub fn run_migrations(connection: &mut Connection) -> AppResult<i64> {
         }
         if *version == 8 {
             repair_author_roles(&transaction)?;
+        }
+        if *version == 10 {
+            crate::services::archive::repair_extractive_records(&transaction)?;
         }
         transaction
             .pragma_update(None, "user_version", version)
@@ -416,10 +420,13 @@ mod tests {
     #[test]
     fn migrations_are_idempotent() {
         let mut connection = Connection::open_in_memory().expect("in-memory database");
-        assert_eq!(run_migrations(&mut connection).expect("first migration"), 9);
+        assert_eq!(
+            run_migrations(&mut connection).expect("first migration"),
+            10
+        );
         assert_eq!(
             run_migrations(&mut connection).expect("second migration"),
-            9
+            10
         );
         let paper_table: String = connection
             .query_row(
@@ -452,7 +459,7 @@ mod tests {
         connection
             .pragma_update(None, "user_version", 2)
             .expect("version");
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 9);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 10);
         let path: String = connection
             .query_row("SELECT file_path FROM papers WHERE id='p1'", [], |row| {
                 row.get(0)
@@ -475,7 +482,7 @@ mod tests {
             .pragma_update(None, "user_version", 3)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 9);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 10);
         let modules: (String, Option<String>, String) = connection
             .query_row(
                 "SELECT analysis_schema_version,research_scenario,key_innovations_json FROM papers WHERE id='p1'",
@@ -501,7 +508,7 @@ mod tests {
             .pragma_update(None, "user_version", 4)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 9);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 10);
         let venue: Option<String> = connection
             .query_row(
                 "SELECT publication_venue FROM papers WHERE id='p1'",
@@ -527,7 +534,7 @@ mod tests {
             .pragma_update(None, "user_version", 4)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 9);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 10);
         let venue: Option<String> = connection
             .query_row(
                 "SELECT publication_venue FROM papers WHERE id='p1'",
@@ -553,7 +560,7 @@ mod tests {
             .pragma_update(None, "user_version", 4)
             .expect("version");
 
-        assert_eq!(run_migrations(&mut connection).expect("migration"), 9);
+        assert_eq!(run_migrations(&mut connection).expect("migration"), 10);
         let title: String = connection
             .query_row("SELECT title FROM papers WHERE id='p1'", [], |row| {
                 row.get(0)

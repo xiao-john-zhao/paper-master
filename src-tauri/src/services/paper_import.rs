@@ -459,6 +459,7 @@ mod tests {
         assert_eq!(repository.counts().expect("counts").0, expected_pdf_count);
         let search_result = repository
             .search(&PaperQuery {
+                tags: vec![],
                 text: Some("communication".into()),
                 tag: None,
                 filter: None,

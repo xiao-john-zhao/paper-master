@@ -12,7 +12,7 @@ interface Props {
 }
 
 function Status({ paper }: { paper: Paper }) {
-  if (paper.analysis_provider === "extractive") return <span className="analysis-status pending">本地摘录 · 待归纳</span>;
+  if (paper.analysis_provider === "extractive" && !["queued","analyzing","failed"].includes(paper.analysis_status)) return <span className="analysis-status pending">原文摘录 · 待模型分析</span>;
   if (paper.analysis_status === "analyzed") return <span className="analysis-status done"><span>✓</span> AI analyzed</span>;
   if (paper.analysis_status === "analyzing") return <span className="analysis-status running"><span className="mini-spinner"/> Analyzing</span>;
   if (paper.analysis_status === "queued") return <span className="analysis-status pending">等待本地分析</span>;
@@ -35,7 +35,7 @@ export function PaperList({ papers, selectedId, compareIds, loading, onSelect, o
             <h3 title={paper.title}>{paper.title}</h3>
             <div className="paper-venue" title={paper.publication_venue}>{paper.publication_venue?.trim() || "刊出主体未识别"}</div>
             <div className="paper-byline" title={formatAuthors(paper.authors)}>{paper.authors.length ? formatAuthors(paper.authors) : "作者信息未识别"}</div>
-            {paper.analysis_status === "analyzed" && paper.tags.length > 0 && <div className="row-tags">{paper.tags.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}</div>}
+            {paper.tags.length > 0 && <div className="row-tags">{paper.tags.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}</div>}
             <div className="paper-row-footer"><Status paper={paper}/><time>{formatDate(paper.created_at)}</time></div>
           </div>
         </article>

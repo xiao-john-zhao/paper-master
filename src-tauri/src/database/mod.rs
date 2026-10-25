@@ -1,4 +1,5 @@
 pub mod analysis_versions;
+mod cache_location;
 pub mod library_cache;
 pub mod migrations;
 pub mod paper_repository;
@@ -19,7 +20,7 @@ pub struct Database {
     path: PathBuf,
     connection: Mutex<Connection>,
     migration_version: i64,
-    cache_directory: Option<PathBuf>,
+    cache_directory: Mutex<Option<PathBuf>>,
     cache_status: Mutex<library_cache::CacheStatus>,
 }
 
@@ -38,9 +39,15 @@ impl std::ops::Deref for DatabaseConnection<'_> {
 impl Drop for DatabaseConnection<'_> {
     fn drop(&mut self) {
         if self.connection.is_autocommit() {
-            if let Some(directory) = &self.database.cache_directory {
+            if let Some(directory) = self
+                .database
+                .cache_directory
+                .lock()
+                .ok()
+                .and_then(|value| value.clone())
+            {
                 if library_cache::pending(&self.connection).unwrap_or(0) > 0 {
-                    let result = library_cache::flush(&self.connection, directory);
+                    let result = library_cache::flush(&self.connection, &directory);
                     self.database.record_cache_result(&self.connection, result);
                 }
             }
@@ -131,12 +138,12 @@ impl Database {
             "migrate",
             format!("Database schema is at version {migration_version}"),
         ));
-        let directory = library_cache::directory(path);
+        let directory = cache_location::resolve(path)?;
         let database = Self {
             path: path.to_path_buf(),
             connection: Mutex::new(connection),
             migration_version,
-            cache_directory: Some(directory.clone()),
+            cache_directory: Mutex::new(Some(directory.clone())),
             cache_status: Mutex::new(library_cache::CacheStatus {
                 directory: directory.display().to_string(),
                 schema_version: library_cache::SCHEMA_VERSION,
@@ -165,7 +172,7 @@ impl Database {
             path: PathBuf::from(":memory:"),
             connection: Mutex::new(connection),
             migration_version,
-            cache_directory: None,
+            cache_directory: Mutex::new(None),
             cache_status: Mutex::new(Default::default()),
         })
     }
@@ -207,7 +214,9 @@ impl Database {
     pub fn sync_cache(&self) -> AppResult<library_cache::CacheStatus> {
         let directory = self
             .cache_directory
-            .as_ref()
+            .lock()
+            .map_err(|_| AppError::new(ErrorCode::Internal, "缓存位置不可用。"))?
+            .clone()
             .ok_or_else(|| AppError::new(ErrorCode::FileNotFound, "当前运行环境没有文件缓存。"))?;
         let connection = self
             .connection
@@ -219,7 +228,7 @@ impl Database {
                 [],
             )
             .map_err(|_| AppError::new(ErrorCode::DatabaseWriteFailed, "缓存同步未开始。"))?;
-        let result = library_cache::flush(&connection, directory);
+        let result = library_cache::flush(&connection, &directory);
         self.record_cache_result(&connection, result.clone());
         result?;
         drop(connection);
@@ -229,7 +238,9 @@ impl Database {
     pub fn recover_cache(&self) -> AppResult<library_cache::CacheStatus> {
         let directory = self
             .cache_directory
-            .as_ref()
+            .lock()
+            .map_err(|_| AppError::new(ErrorCode::Internal, "缓存位置不可用。"))?
+            .clone()
             .ok_or_else(|| AppError::new(ErrorCode::FileNotFound, "当前运行环境没有文件缓存。"))?;
         let connection = self
             .connection
@@ -237,17 +248,99 @@ impl Database {
             .map_err(|_| AppError::new(ErrorCode::DatabaseReadFailed, "数据库忙。"))?;
         // Flush pending writes/deletions before reading older snapshots.
         let result = (|| {
-            library_cache::flush(&connection, directory)?;
-            let (restored, unreadable) = library_cache::recover(&connection, directory)?;
+            library_cache::flush(&connection, &directory)?;
+            let legacy = library_cache::directory(&self.path);
+            if std::fs::canonicalize(&legacy).ok() != std::fs::canonicalize(&directory).ok() {
+                cache_location::copy_legacy_tombstones(&connection, &legacy, &directory)?;
+            }
+            let (restored, unreadable) = library_cache::recover(&connection, &directory)?;
+            crate::services::archive::repair_extractive_records(&connection)?;
             if let Ok(mut status) = self.cache_status.lock() {
                 status.restored = restored;
                 status.unreadable = unreadable;
             }
-            library_cache::seed_missing(&connection, directory)?;
-            library_cache::flush(&connection, directory)
+            // Older binaries may have flushed their own default cache and cleared the shared
+            // outbox. Re-export the shared database into the selected location on startup.
+            connection
+                .execute(
+                    "INSERT OR IGNORE INTO library_cache_pending SELECT id FROM papers",
+                    [],
+                )
+                .map_err(|_| AppError::new(ErrorCode::DatabaseWriteFailed, "缓存初始化未完成。"))?;
+            library_cache::flush(&connection, &directory)
         })();
         self.record_cache_result(&connection, result.clone());
         result?;
+        drop(connection);
+        self.cache_status()
+    }
+
+    pub fn relocate_cache(&self, target: &Path) -> AppResult<library_cache::CacheStatus> {
+        if !target.is_absolute() || target == self.path.parent().unwrap_or(Path::new(".")) {
+            return Err(AppError::new(
+                ErrorCode::InvalidSettings,
+                "请选择独立的绝对路径缓存文件夹。",
+            ));
+        }
+        std::fs::create_dir_all(target)
+            .map_err(|_| AppError::new(ErrorCode::DatabaseWriteFailed, "新缓存目录无法创建。"))?;
+        let target = PathBuf::from(crate::services::paper_import::normalize_storage_path(
+            &std::fs::canonicalize(target)
+                .map_err(|_| AppError::new(ErrorCode::FileNotFound, "缓存目录不存在。"))?,
+        ));
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| AppError::new(ErrorCode::DatabaseReadFailed, "数据库忙。"))?;
+        let mut current = self
+            .cache_directory
+            .lock()
+            .map_err(|_| AppError::new(ErrorCode::Internal, "缓存位置不可用。"))?;
+        let source = current
+            .as_ref()
+            .ok_or_else(|| AppError::new(ErrorCode::FileNotFound, "当前环境没有文件缓存。"))?;
+        if std::fs::canonicalize(source).ok().as_ref()
+            == std::fs::canonicalize(&target).ok().as_ref()
+        {
+            drop(current);
+            drop(connection);
+            return self.cache_status();
+        }
+        if source.is_dir() {
+            library_cache::flush(&connection, source)?;
+        }
+        cache_location::copy_entries(source, &target)?;
+        let (restored, unreadable) = library_cache::recover(&connection, &target)?;
+        crate::services::archive::repair_extractive_records(&connection)?;
+        if unreadable > 0 {
+            return Err(AppError::new(
+                ErrorCode::InvalidSettings,
+                "目标目录含有无法读取的缓存，未切换位置；请先核对这些文件。",
+            ));
+        }
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO library_cache_pending SELECT id FROM papers",
+                [],
+            )
+            .map_err(|_| AppError::new(ErrorCode::DatabaseWriteFailed, "缓存搬运未完成。"))?;
+        library_cache::flush(&connection, &target)?;
+        if let Err(error) = cache_location::save(&self.path, &target) {
+            let _ = connection.execute(
+                "INSERT OR IGNORE INTO library_cache_pending SELECT id FROM papers",
+                [],
+            );
+            return Err(error);
+        }
+        *current = Some(target.clone());
+        if let Ok(mut status) = self.cache_status.lock() {
+            status.directory = target.display().to_string();
+            status.restored = restored;
+            status.unreadable = 0;
+            status.pending = 0;
+            status.last_error = None;
+        }
+        drop(current);
         drop(connection);
         self.cache_status()
     }

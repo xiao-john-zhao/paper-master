@@ -46,6 +46,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
             commands::library_cache::get_library_cache_status,
+            commands::library_cache::relocate_library_cache,
             commands::library_cache::sync_library_cache,
             commands::library_cache::recover_library_cache,
             commands::library_cache::open_library_cache_folder,
@@ -84,6 +85,7 @@ pub fn run() {
             commands::ai::get_ai_models,
             commands::ai::load_ai_model,
             commands::ai::analyze_paper,
+            commands::ai::queue_missing_analyses,
             commands::ai::generate_paper_tags,
             commands::ai::compare_papers,
             commands::ai::edit_comparison_result,

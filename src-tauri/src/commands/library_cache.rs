@@ -21,6 +21,14 @@ pub fn recover_library_cache(database: State<'_, Database>) -> AppResult<CacheSt
 }
 
 #[tauri::command]
+pub fn relocate_library_cache(
+    database: State<'_, Database>,
+    directory: String,
+) -> AppResult<CacheStatus> {
+    database.relocate_cache(std::path::Path::new(&directory))
+}
+
+#[tauri::command]
 pub fn open_library_cache_folder(app: AppHandle, database: State<'_, Database>) -> AppResult<()> {
     let status = database.cache_status()?;
     std::fs::create_dir_all(&status.directory)

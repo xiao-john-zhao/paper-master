@@ -28,6 +28,14 @@ interface Props {
 
 function AnalysisContent({ paper }: { paper: Paper }) {
   const result = paper.analysis;
+  if (paper.analysis_provider === "extractive") {
+    const usable = (text?: string) => text?.trim() && !/^(未可靠识别|本地摘录不推断|待阅读全文|待人工或模型|本地摘录未评估|未提取到可读文字)/.test(text.trim());
+    return <div className="analysis-sections"><p className="analysis-pending-notice" role="status">尚未完成模型分析。以下仅为原文摘录，不作为模型总结；点击上方“AI 分析”可补齐。</p>
+      {usable(result?.ai_summary) && <section><h3>摘要原文摘录</h3><p>{result?.ai_summary}</p></section>}
+      {usable(result?.main_results) && <section><h3>结论原文摘录</h3><p>{result?.main_results}</p></section>}
+      {!!paper.tags.length && <section><h3>原文关键词</h3><div className="detail-tags">{paper.tags.map(tag=><span key={tag}>{tag}</span>)}</div></section>}
+    </div>;
+  }
   if (!result) {
     return (
       <div className="analysis-empty">
@@ -74,7 +82,7 @@ export function PaperDetail({ paper, analyzing, onAnalyze, onCancel, onOpen, onD
         <div className="detail-actions">
           <button className="button secondary" onClick={onOpen}><ExternalIcon/>Open PDF</button>
           <button className="button secondary" onClick={onRelink}>重新关联 PDF</button>
-          <button className={`button primary ${analyzing ? "cancel-analysis" : ""}`} onClick={analyzing ? onCancel : onAnalyze}>{analyzing ? <span className="mini-spinner light"/> : <SparkIcon/>}{analyzing ? "取消分析" : paper.analysis ? "重新分析" : "AI 分析"}</button>
+          <button className={`button primary ${analyzing ? "cancel-analysis" : ""}`} onClick={analyzing ? onCancel : onAnalyze}>{analyzing ? <span className="mini-spinner light"/> : <SparkIcon/>}{analyzing ? "取消分析" : paper.analysis && paper.analysis_provider !== "extractive" ? "重新分析" : "AI 分析"}</button>
           <div className="menu-wrap"><button className="icon-button" aria-label="More paper actions"><MoreIcon/></button><button className="delete-action" onClick={onDelete}>Delete from library</button></div>
         </div>
       </header>

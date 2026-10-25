@@ -23,6 +23,20 @@ impl PaperAnalysisResult {
     }
 }
 
+pub fn is_extractive_placeholder(value: &str) -> bool {
+    [
+        "未可靠识别",
+        "本地摘录不推断",
+        "待阅读全文或模型分析",
+        "待人工或模型归纳",
+        "本地摘录未评估",
+        "未匹配受管主题词",
+        "未提取到可读文字",
+    ]
+    .iter()
+    .any(|prefix| value.trim().starts_with(prefix))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PdfDiagnostics {
     pub page_count: usize,
@@ -73,6 +87,8 @@ pub struct PaperQuery {
     pub text: Option<String>,
     #[serde(default)]
     pub tag: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
     #[serde(default)]
     pub filter: Option<String>,
 }

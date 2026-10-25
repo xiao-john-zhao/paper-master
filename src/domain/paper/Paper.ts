@@ -48,6 +48,7 @@ export type LibraryFilter = "all" | "recent" | "analyzed";
 export interface PaperQuery {
   text?: string;
   tag?: string;
+  tags?: string[];
   filter?: LibraryFilter;
 }
 

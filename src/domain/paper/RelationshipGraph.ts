@@ -7,6 +7,10 @@ export interface GraphEdge { id:string; source:string; target:string; weight:num
 export interface RelationshipGraph { mode:GraphMode; nodes:GraphNode[]; edges:GraphEdge[]; totalPapers:number; taggedPapers:number; omittedNodes:number; omittedEdges:number }
 export interface GraphOptions { mode:GraphMode; maxNodes?:number; minShared?:number; includeAuthors?:boolean; includeTeams?:boolean; teamLinks?:TeamLink[] }
 const palette=["#4468d8","#159b91","#a674d1","#df9850","#6296c8","#d67490"];
+/** Zoom changes graph coordinates, while glyph sizes, node radii and hit areas stay readable. */
+export function graphPoint(point: {x:number;y:number}, zoom:number, pan:{x:number;y:number}) {
+  return { x:550+(point.x-550)*zoom+pan.x, y:340+(point.y-340)*zoom+pan.y };
+}
 const key=(text:string)=>text.trim().replace(/\s+/g," ").toLocaleLowerCase();
 function unique(values:string[]) { return [...new Map(values.map(value=>[key(value),value.trim()])).entries()].filter(([value])=>value.length>0); }
 

@@ -82,7 +82,13 @@ fn project(connection: &Connection, version: &AnalysisVersion) -> AppResult<()> 
     let mut paper = repo.find_by_id(&version.paper_id)?.ok_or_else(failure)?;
     paper.analysis = Some(version.result.clone());
     paper.tags = version.result.tags.clone();
-    paper.analysis_status = "analyzed".into();
+    paper.analysis_provider = Some(version.provider.clone());
+    paper.analysis_status = if version.provider == "extractive" {
+        "not_analyzed"
+    } else {
+        "analyzed"
+    }
+    .into();
     paper.analysis_error = None;
     paper.updated_at = Utc::now().to_rfc3339();
     repo.update(&paper)?;

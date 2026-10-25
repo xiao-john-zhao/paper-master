@@ -35,11 +35,11 @@ struct CachedVersion {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Entry {
+pub(super) struct Entry {
     cache_schema_version: u32,
-    paper_id: String,
+    pub(super) paper_id: String,
     // None is a durable deletion marker, so a restart cannot resurrect deleted papers.
-    paper: Option<Paper>,
+    pub(super) paper: Option<Paper>,
     #[serde(default)]
     extracted_text: String,
     #[serde(default)]
@@ -60,7 +60,7 @@ pub fn directory(database_path: &Path) -> PathBuf {
         .join("v1")
 }
 
-fn file_name(id: &str) -> String {
+pub(super) fn file_name(id: &str) -> String {
     // Never interpolate an externally supplied paper ID into a filesystem path.
     format!(
         "{}.json",
@@ -71,7 +71,7 @@ fn file_name(id: &str) -> String {
     )
 }
 
-fn read(path: &Path) -> AppResult<Entry> {
+pub(super) fn read(path: &Path) -> AppResult<Entry> {
     let data = fs::read(path).map_err(|_| failure())?;
     let entry: Entry = serde_json::from_slice(&data).map_err(|_| failure())?;
     if entry.cache_schema_version != SCHEMA_VERSION
@@ -89,7 +89,7 @@ fn read(path: &Path) -> AppResult<Entry> {
     Ok(entry)
 }
 
-fn write(directory: &Path, entry: &Entry) -> AppResult<()> {
+pub(super) fn write(directory: &Path, entry: &Entry) -> AppResult<()> {
     fs::create_dir_all(directory).map_err(|_| failure())?;
     let path = directory.join(file_name(&entry.paper_id));
     let temporary = directory.join(format!("{}.tmp", uuid::Uuid::new_v4()));
@@ -154,27 +154,6 @@ fn write(directory: &Path, entry: &Entry) -> AppResult<()> {
         let _ = fs::remove_file(temporary);
     }
     result
-}
-
-pub fn seed_missing(connection: &Connection, directory: &Path) -> AppResult<()> {
-    let mut query = connection
-        .prepare("SELECT id FROM papers")
-        .map_err(|_| failure())?;
-    let ids = query
-        .query_map([], |r| r.get::<_, String>(0))
-        .map_err(|_| failure())?;
-    for id in ids {
-        let id = id.map_err(|_| failure())?;
-        if !directory.join(file_name(&id)).exists() {
-            connection
-                .execute(
-                    "INSERT OR IGNORE INTO library_cache_pending VALUES(?1)",
-                    [id],
-                )
-                .map_err(|_| failure())?;
-        }
-    }
-    Ok(())
 }
 
 pub fn pending(connection: &Connection) -> AppResult<usize> {

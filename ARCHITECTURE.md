@@ -1,3 +1,12 @@
+# v0.4.2 controls and analysis integrity
+
+- AnalysisSource formats provider/model identity and creation/edit timestamps. Unknown legacy models remain unknown; Codex drains stderr, retains only a bounded header for a sanitized model identifier, and discards body/reasoning diagnostics.
+- Cache_location persists an atomic, app-version-independent location pointer beside SQLite. Relocation serializes with database access, copies validated snapshots, merges missing history, exports current rows, then switches the pointer; failure leaves the source/pointer available. Old default-cache tombstones are respected before recovery, and startup mirrors the shared database to the selected directory.
+- Migration 10 repairs only unedited extractive placeholders and fills conclusions from stored source text. Model completion is distinct from the existence of editable excerpt data. Model validation rejects synthetic archive placeholders; PDF headings normalize split capitals and conclusion boundaries stop before back matter.
+- PaperQuery.tags adds canonical AND filters alongside the backward-compatible tag field. The UI obtains its facets from the complete library independently of the result query.
+- Graph zoom projects x/y through graphPoint without transforming glyphs or hit targets. All graph modes share this camera behavior.
+- Explicit missing-analysis batches persist an AppSettings snapshot per paper with queue state in one transaction. Queued requests use this provider/model snapshot, while interactive requests use current settings. Real results are appended independently and saved to the selected file cache.
+
 # v0.4.1 persistent recovery cache
 
 - `database/library_cache.rs` owns the version-neutral v1 JSON format, atomic replacement, previous generation, deletion tombstones, validation, merge and recovery. Files sit beside the stable database under `library-cache/v1`, independent of binary version/cwd. Papers include extracted text to restore search/evidence without requiring an accessible source PDF; provider credentials and settings are excluded.

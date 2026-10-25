@@ -26,6 +26,45 @@ pub fn sync_library_cache() -> AppResult<()> {
     sync_library_cache_at(&directory)
 }
 
+pub fn queue_missing_local() -> AppResult<()> {
+    use crate::database::settings_storage::{SettingsStorage, SqliteSettingsStorage};
+    let directory = shared_data_directory()?;
+    let logger = AppLogger::new(&directory).map_err(|_| {
+        crate::error::AppError::new(
+            crate::error::ErrorCode::DatabaseWriteFailed,
+            "诊断目录不可用。",
+        )
+    })?;
+    let database = Database::open_with_backup(&directory.join("paper-master.db"), &logger)?;
+    let ids = {
+        let connection = database.connection()?;
+        let settings = SqliteSettingsStorage::new(&connection).get()?;
+        if settings.effective_provider() != "lmstudio" {
+            return Err(crate::error::AppError::new(
+                crate::error::ErrorCode::InvalidSettings,
+                "请先保存 LM Studio 本地模型设置，再启动补齐。",
+            ));
+        }
+        SqlitePaperRepository::new(&connection)
+            .list(&Default::default())?
+            .into_iter()
+            .map(|p| p.id)
+            .collect::<Vec<_>>()
+    };
+    let result = crate::services::analysis_queue::enqueue_missing(&database, &ids)?;
+    std::fs::write(
+        directory.join("local-analysis-queue.json"),
+        serde_json::to_vec_pretty(&result).unwrap(),
+    )
+    .map_err(|_| {
+        crate::error::AppError::new(
+            crate::error::ErrorCode::DatabaseWriteFailed,
+            "分析队列报告未写入。",
+        )
+    })?;
+    Ok(())
+}
+
 fn sync_library_cache_at(directory: &std::path::Path) -> AppResult<()> {
     std::fs::create_dir_all(&directory).map_err(|_| {
         crate::error::AppError::new(

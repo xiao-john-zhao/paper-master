@@ -105,6 +105,24 @@ pub async fn analyze_paper(
     .await
 }
 
+#[tauri::command]
+pub fn queue_missing_analyses(
+    app: tauri::AppHandle,
+    database: State<'_, Database>,
+    paper_ids: Vec<String>,
+) -> AppResult<crate::services::analysis_queue::QueueSummary> {
+    let settings = SqliteSettingsStorage::new(&*database.connection()?).get()?;
+    if settings.effective_provider() == "mock" {
+        return Err(AppError::new(
+            ErrorCode::InvalidSettings,
+            "请先选择 LM Studio 或 Codex 真实模型，演示模型不用于补齐分析。",
+        ));
+    }
+    let result = crate::services::analysis_queue::enqueue_missing(&database, &paper_ids)?;
+    crate::services::analysis_queue::start(app);
+    Ok(result)
+}
+
 pub(crate) async fn run_analysis(
     database: &Database,
     logger: &AppLogger,
@@ -126,7 +144,11 @@ pub(crate) async fn run_analysis(
             if let Some(paper) =
                 SqlitePaperRepository::new(&connection).find_by_id(&request.paper_id)?
             {
-                let settings = SqliteSettingsStorage::new(&connection).get()?;
+                let settings = crate::services::analysis_queue::settings_for(
+                    &connection,
+                    &request.paper_id,
+                    queued_only,
+                )?;
                 let has_model = crate::database::analysis_versions::list(&connection, &paper.id)?
                     .iter()
                     .any(|v| {
@@ -153,7 +175,16 @@ pub(crate) async fn run_analysis(
                 ));
             }
         }
-        analyze_inner(database, logger, providers, requests, request, token).await
+        analyze_inner(
+            database,
+            logger,
+            providers,
+            requests,
+            request,
+            token,
+            queued_only,
+        )
+        .await
     }
     .await;
     requests.remove(&request.request_id);
@@ -196,6 +227,7 @@ async fn analyze_inner(
     requests: &AIRequestRegistry,
     request: &AnalysisRequest,
     token: tokio_util::sync::CancellationToken,
+    queued_only: bool,
 ) -> AppResult<PaperAnalysisResult> {
     let started = Instant::now();
     requests.report(
@@ -208,7 +240,11 @@ async fn analyze_inner(
     let (settings, mut paper, extracted_text, managed_tags) = {
         let connection = database.connection()?;
         let repository = SqlitePaperRepository::new(&connection);
-        let settings = SqliteSettingsStorage::new(&connection).get()?;
+        let settings = crate::services::analysis_queue::settings_for(
+            &connection,
+            &request.paper_id,
+            queued_only,
+        )?;
         let paper = repository.find_by_id(&request.paper_id)?.ok_or_else(|| {
             AppError::new(
                 ErrorCode::FileNotFound,
@@ -367,7 +403,14 @@ async fn analyze_inner(
                 &connection,
                 &paper.id,
                 provider.id(),
-                response.model.as_deref().unwrap_or(&settings.model),
+                response
+                    .model
+                    .as_deref()
+                    .unwrap_or(if provider.id() == "codex" {
+                        ""
+                    } else {
+                        &settings.model
+                    }),
                 &response.value,
             )?;
             drop(connection);

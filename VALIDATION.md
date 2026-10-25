@@ -1,3 +1,13 @@
+# v0.4.2 verification — 2026-10-25
+
+- Frontend: 26 tests passed across 7 files, TypeScript/Vite production build passed (152 modules). Checks cover persistent multi-tag checkboxes/intersection, truthful model/time labels, and coordinate zoom with unchanged text size/node radii.
+- Backend: 87 passed, 0 failed, 7 external live tests ignored. New checks cover cache relocation/cold recovery/manual moves/future-format rejection/legacy deletion tombstones, source-only conclusion repair/manual preservation, multi-tag canonical search, queued provider/model pinning, and bounded model-header extraction without retaining body diagnostics.
+- Full-library isolated migration and actual migration: 439 papers / 885 historical versions retained; paper metadata and 7 protected model/manual versions match pre-migration digests. Schema 10, integrity ok, cache pending 0. Synthetic unedited active placeholders cleared; 399 extracted conclusions recovered; current model-complete rows corrected from 439 to 6 and 433 excerpts marked pending analysis.
+- Native desktop: two keyword checkboxes selected simultaneously, whole facet list/counts remain; actual graph 100%→120% spreads coordinates with stable text/node sizes; cache-directory picker opens and cancels correctly; model/time labels, Production 0.4.2 and schema 10 visible.
+- Explicitly authorized local analysis: LM Studio server/model qwen/qwen3.8-27b reused on 127.0.0.1:1234. One real paper completed the full production analysis/Chinese/Schema/evidence/tag/cache pipeline, with 7 stored tags and an independent model version; no archive placeholders remain in that output. Detailed private report: data/validation/v0.4.2-local-sample-result.json.
+- Remaining local batch started: 432 queued, 7 already complete skipped, 0 without text. Actual worker snapshot: 7 analyzed / 1 analyzing / 431 queued; 432 job configuration snapshots pinned to lmstudio + qwen/qwen3.8-27b + local_only. Cached outbox 0, integrity ok. These are running tasks, not completed results; completion/failure counts must be read from the live queue. Closing the GUI interrupts the current task and restart resumes it.
+- Release EXE + NSIS x64 installer built; version sources and Cargo.lock aligned to 0.4.2. Source PDFs and all original protected results remain unchanged. Personal snapshots, cache files, model/runtime data and diagnostic details remain excluded from Git.
+
 # v0.4.1 verification — 2026-10-25
 
 - `pnpm test`: 22 passed. `pnpm build` and the production Tauri before-build frontend step passed with 151 modules.

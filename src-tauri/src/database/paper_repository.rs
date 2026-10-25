@@ -88,7 +88,7 @@ impl PaperRepository for SqlitePaperRepository<'_> {
                 extracted_text, analysis.map(|value| value.ai_summary.as_str()), analysis.map(|value| value.research_problem.as_str()),
                 analysis.map(|value| value.core_method.as_str()), json(&analysis.map(|value| &value.key_contributions).cloned().unwrap_or_default())?,
                 analysis.map(|value| value.main_results.as_str()), analysis.map(|value| value.limitations.as_str()), json(&paper.tags)?,
-                i64::from(paper.analysis.is_some()), paper.analysis_status, paper.analysis_error, optional_json(paper.pdf_diagnostics.as_ref())?, paper.created_at, paper.updated_at,
+                i64::from(paper.analysis.is_some() && paper.analysis_provider.as_deref() != Some("extractive")), paper.analysis_status, paper.analysis_error, optional_json(paper.pdf_diagnostics.as_ref())?, paper.created_at, paper.updated_at,
                 analysis.map(|value| value.schema_version.as_str()).unwrap_or("2"), analysis.map(|value| value.research_scenario.as_str()),
                 json(&analysis.map(|value| &value.key_innovations).cloned().unwrap_or_default())?,
                 paper.publication_venue,
@@ -108,7 +108,7 @@ impl PaperRepository for SqlitePaperRepository<'_> {
             params![paper.id,paper.file_path,paper.file_name,paper.title,json(&paper.authors)?,paper.year,paper.abstract_text,
                 analysis.map(|value| value.ai_summary.as_str()),analysis.map(|value| value.research_problem.as_str()),analysis.map(|value| value.core_method.as_str()),
                 json(&analysis.map(|value| &value.key_contributions).cloned().unwrap_or_default())?,analysis.map(|value| value.main_results.as_str()),analysis.map(|value| value.limitations.as_str()),
-                json(&paper.tags)?,i64::from(paper.analysis.is_some()),paper.analysis_status,paper.analysis_error,optional_json(paper.pdf_diagnostics.as_ref())?,paper.updated_at,
+                json(&paper.tags)?,i64::from(paper.analysis.is_some() && paper.analysis_provider.as_deref() != Some("extractive")),paper.analysis_status,paper.analysis_error,optional_json(paper.pdf_diagnostics.as_ref())?,paper.updated_at,
                 analysis.map(|value| value.schema_version.as_str()).unwrap_or("2"),analysis.map(|value| value.research_scenario.as_str()),
                 json(&analysis.map(|value| &value.key_innovations).cloned().unwrap_or_default())?,paper.publication_venue],
         ).map_err(|error| write_error("Could not update paper", error))?;
@@ -162,6 +162,7 @@ impl PaperRepository for SqlitePaperRepository<'_> {
                 let non_text_query = PaperQuery {
                     text: None,
                     tag: query.tag.clone(),
+                    tags: query.tags.clone(),
                     filter: query.filter.clone(),
                 };
                 Ok(self
@@ -225,17 +226,19 @@ fn map_paper(row: &Row<'_>) -> rusqlite::Result<Paper> {
     let schema_version: String = row.get(20)?;
     let research_scenario: Option<String> = row.get(21)?;
     let key_innovations: Vec<String> = parse_json(row.get::<_, String>(22)?, 22)?;
-    let analysis = analyzed.then(|| PaperAnalysisResult {
-        schema_version,
-        research_problem: research_problem.unwrap_or_default(),
-        research_scenario: research_scenario.unwrap_or_default(),
-        core_method: core_method.unwrap_or_default(),
-        key_innovations,
-        key_contributions,
-        main_results: main_results.unwrap_or_default(),
-        limitations: limitations.unwrap_or_default(),
-        tags: tags.clone(),
-        ai_summary: ai_summary.unwrap_or_default(),
+    let analysis = (analyzed || ai_summary.is_some() || research_problem.is_some()).then(|| {
+        PaperAnalysisResult {
+            schema_version,
+            research_problem: research_problem.unwrap_or_default(),
+            research_scenario: research_scenario.unwrap_or_default(),
+            core_method: core_method.unwrap_or_default(),
+            key_innovations,
+            key_contributions,
+            main_results: main_results.unwrap_or_default(),
+            limitations: limitations.unwrap_or_default(),
+            tags: tags.clone(),
+            ai_summary: ai_summary.unwrap_or_default(),
+        }
     });
     Ok(Paper {
         id: row.get(0)?,
@@ -281,6 +284,19 @@ fn matches_query(paper: &Paper, query: &PaperQuery) -> bool {
         }) {
             return false;
         }
+    }
+    if !query
+        .tags
+        .iter()
+        .filter(|tag| !tag.trim().is_empty())
+        .all(|tag| {
+            paper.tags.iter().any(|value| {
+                crate::services::keywords::canonical(value)
+                    .eq_ignore_ascii_case(&crate::services::keywords::canonical(tag))
+            })
+        })
+    {
+        return false;
     }
     let Some(text) = query
         .text
@@ -362,6 +378,41 @@ fn write_error(context: &str, error: rusqlite::Error) -> AppError {
 mod tests {
     use super::*;
     use crate::database::Database;
+    #[test]
+    fn multiple_tags_use_intersection_and_preserve_canonical_aliases_in_search() {
+        let database = Database::in_memory().unwrap();
+        let c = database.connection().unwrap();
+        let repo = SqlitePaperRepository::new(&c);
+        for (id, tags) in [
+            ("a", r#"["通感一体化","UAV"]"#),
+            ("b", r#"["通感一体化"]"#),
+            ("c", r#"["UAV"]"#),
+        ] {
+            c.execute("INSERT INTO papers(id,file_path,file_name,title,tags_json,created_at,updated_at) VALUES(?1,?1,?1,'Wireless Research',?2,'now','now')",rusqlite::params![id,tags]).unwrap();
+        }
+        let query = PaperQuery {
+            text: Some("Wireless".into()),
+            tags: vec!["ISAC".into(), "UAV".into()],
+            ..Default::default()
+        };
+        assert_eq!(
+            repo.search(&query)
+                .unwrap()
+                .iter()
+                .map(|p| p.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a"]
+        );
+        assert_eq!(
+            repo.list(&PaperQuery {
+                tags: vec!["ISAC".into()],
+                ..Default::default()
+            })
+            .unwrap()
+            .len(),
+            2
+        );
+    }
 
     fn paper() -> Paper {
         Paper {

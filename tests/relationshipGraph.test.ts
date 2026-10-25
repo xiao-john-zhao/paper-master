@@ -1,9 +1,15 @@
 import { describe,expect,it } from "vitest";
-import { buildRelationshipGraph,layoutGraph,graphSvg } from "../src/domain/paper/RelationshipGraph";
+import { buildRelationshipGraph,layoutGraph,graphSvg,graphPoint } from "../src/domain/paper/RelationshipGraph";
 import type { Paper } from "../src/domain/paper/Paper";
 
 const paper=(id:string,tags:string[],authors:string[]=[]):Paper=>({id,title:`Paper ${id}`,authors,tags,file_name:`${id}.pdf`,file_path:`/${id}.pdf`,created_at:`2026-10-0${id}`,updated_at:"now",analysis_status:"analyzed"});
 describe("source-backed relationship graph",()=>{
+  it("zooms graph coordinates independently of glyph sizes",()=>{
+    const a=graphPoint({x:600,y:400},1,{x:0,y:0});
+    const b=graphPoint({x:600,y:400},2,{x:0,y:0});
+    expect(b.x-550).toBe((a.x-550)*2);expect(b.y-340).toBe((a.y-340)*2);
+    expect(graphPoint({x:550,y:340},.2,{x:10,y:15})).toEqual({x:560,y:355});
+  });
   it("counts a keyword and co-occurrence at most once per paper, including duplicate records",()=>{
     const a=paper("1",["ISAC"," isac ","UAV"]),b=paper("2",["ISAC","UAV"]),c=paper("3",["ISAC","Fairness"]);
     const graph=buildRelationshipGraph([a,a,b,c],{mode:"keywords"});

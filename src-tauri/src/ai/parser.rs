@@ -17,6 +17,24 @@ pub fn parse_analysis_response(raw: &str) -> AppResult<PaperAnalysisResult> {
     value.tags = unique_nonempty(value.tags);
     value.key_innovations = unique_nonempty(value.key_innovations);
     value.key_contributions = unique_nonempty(value.key_contributions);
+    if [
+        &value.ai_summary,
+        &value.research_problem,
+        &value.research_scenario,
+        &value.core_method,
+        &value.main_results,
+        &value.limitations,
+    ]
+    .into_iter()
+    .chain(value.key_innovations.iter())
+    .chain(value.key_contributions.iter())
+    .any(|text| crate::domain::paper::is_extractive_placeholder(text))
+    {
+        return Err(invalid_schema(
+            "Model output contains archive placeholders instead of analysis.",
+        )
+        .stage("SCHEMA_VALIDATED"));
+    }
     if value.research_problem.trim().is_empty()
         || value.research_scenario.trim().is_empty()
         || value.core_method.trim().is_empty()

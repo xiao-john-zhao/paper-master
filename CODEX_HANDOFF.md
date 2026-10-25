@@ -1,3 +1,13 @@
+# v0.4.2 接管要点（2026-10-25）
+
+当前版本 v0.4.2，下一目标 v0.4.3。用户本轮要求模型/时间标注、缓存可更换搬运、纠正伪完成分析、多关键词复选与固定字号图谱缩放；追加要求修改完成后用 LM Studio 本地补齐分析。
+
+迁移 10 只清理未编辑 extractive 版本的系统占位，修复结论标题并回填可靠摘录，将 active extractive 标成 not_analyzed/ai_analyzed=0；读取时仍保留可编辑摘录，不损伤模型与人工结果。不要再把 paper.analysis.is_some() 等同于真实模型完成。
+
+缓存目录由数据库旁的 cache-location.json 持久定位，默认位置保持兼容。搬运复制校验后才切换指针，原目录不删除；旧版默认缓存删除标记不能被自定义缓存复活。批量队列将配置保存在 settings 的 analysis-queue-settings:<paper_id>，执行时读取该快照，保证本地批次不会因交互服务切换改为在线调用。
+
+关键词 tags[] 为多选交集，保留旧 tag 查询兼容；Sidebar 词表来自完整库。graphPoint 只投影坐标，图谱 SVG 外层不再整体 scale，文字和点击区域独立。完整记录见 docs/2026-10-25-v0.4.2-library-controls.md。下文为历史交接信息。
+
 # v0.4.1 接管要点（2026-10-25）
 
 当前版本 v0.4.1，下一目标 v0.4.2。缓存目录固定为 `%APPDATA%/app.papermaster.desktop/library-cache/v1/`，与发布版本号无关。迁移 9 使用 SQLite 触发器维护 `library_cache_pending`；所有 Database 连接的作用域结束后自动同步已提交变化。失败不能清空待同步队列或隐藏数据库内容。

@@ -424,3 +424,4 @@ progress:not([value])::-webkit-progress-bar { background: linear-gradient(90deg,
 .analysis-editor label { display:grid; gap:8px; font-weight:600; }
 .analysis-editor textarea { width:100%; resize:vertical; min-height:80px; padding:12px; font:inherit; font-weight:400; line-height:1.7; border:1px solid #bbc9df; border-radius:8px; background:white; }
 .analysis-edit-actions { display:flex; gap:12px; position:sticky; bottom:0; background:#f7f9fd; padding:12px 0; }
+.tag-nav-item { grid-template-columns: 16px minmax(0,1fr) auto; cursor: pointer; } .tag-nav-item input { width: 15px; height: 15px; margin: 0; accent-color: #4468d8; } .analysis-pending-notice { padding: 14px; border: 1px solid #ead6ac; border-radius: 6px; background: #fff9ed; line-height: 1.7; color: #765a25; } .toolbar-actions { flex-wrap: wrap; }
