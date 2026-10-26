@@ -19,7 +19,7 @@ export function createApplicationServices() {
   const tauri = isTauriRuntime();
   const repository = tauri ? new TauriPaperRepository() : new InMemoryPaperRepository();
   const settingsStorage = tauri ? new TauriSettingsStorage() : new InMemorySettingsStorage({ ...DEFAULT_SETTINGS, ai_provider: "mock" });
-  const providers: Record<string, AIProvider> = { lmstudio: new LMStudioProvider(), codex: new LMStudioProvider("codex"), mock: tauri ? new LMStudioProvider("mock") : new MockAIProvider() };
+  const providers: Record<string, AIProvider> = { openai: new LMStudioProvider("openai"), lmstudio: new LMStudioProvider(), codex: new LMStudioProvider("codex"), mock: tauri ? new LMStudioProvider("mock") : new MockAIProvider() };
   const searchProvider = tauri ? new KeywordSearchProvider() : undefined;
   const analysisService = new AnalysisService(tauri ? providers.lmstudio : providers.mock, repository);
   const paperService = new PaperService(repository,searchProvider);

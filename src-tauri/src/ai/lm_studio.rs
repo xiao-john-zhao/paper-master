@@ -175,6 +175,8 @@ struct ChatCompletion {
 enum StructuredOutputSchema<'a> {
     PaperAnalysis,
     PaperComparison(&'a str),
+    EvidenceNote,
+    SemanticAudit,
 }
 
 impl StructuredOutputSchema<'_> {
@@ -182,6 +184,8 @@ impl StructuredOutputSchema<'_> {
         match self {
             Self::PaperAnalysis => "paper_analysis_result",
             Self::PaperComparison(_) => "paper_comparison_result",
+            Self::EvidenceNote => "paper_evidence_note",
+            Self::SemanticAudit => "paper_semantic_audit",
         }
     }
 
@@ -189,6 +193,8 @@ impl StructuredOutputSchema<'_> {
         match self {
             Self::PaperAnalysis => PaperAnalysisResult::response_json_schema(),
             Self::PaperComparison(input) => comparison_response_schema(input),
+            Self::EvidenceNote => super::staged::note_schema(),
+            Self::SemanticAudit => super::staged::audit_schema(),
         }
     }
 }
@@ -243,8 +249,52 @@ struct RequestMessage<'a> {
 
 #[async_trait]
 impl AIProvider for LMStudioProvider {
+    fn supports_staged_analysis(&self) -> bool {
+        true
+    }
     fn id(&self) -> &'static str {
         "lmstudio"
+    }
+
+    async fn read_evidence(
+        &self,
+        input: &str,
+        settings: &AppSettings,
+        cancellation: CancellationToken,
+    ) -> AppResult<super::staged::EvidenceNote> {
+        let model = self.resolve_model(settings).await?;
+        let result = self
+            .send_chat(
+                super::staged::READ_PROMPT,
+                input,
+                &model,
+                settings,
+                cancellation,
+                StructuredOutputSchema::EvidenceNote,
+            )
+            .await?;
+        serde_json::from_str(&result.content)
+            .map_err(|_| AppError::new(ErrorCode::AiInvalidJson, "分段证据返回了无效 JSON。"))
+    }
+    async fn audit_analysis(
+        &self,
+        input: &str,
+        settings: &AppSettings,
+        cancellation: CancellationToken,
+    ) -> AppResult<super::staged::SemanticAudit> {
+        let model = self.resolve_model(settings).await?;
+        let result = self
+            .send_chat(
+                super::staged::AUDIT_PROMPT,
+                input,
+                &model,
+                settings,
+                cancellation,
+                StructuredOutputSchema::SemanticAudit,
+            )
+            .await?;
+        serde_json::from_str(&result.content)
+            .map_err(|_| AppError::new(ErrorCode::AiInvalidJson, "语义复核返回了无效 JSON。"))
     }
 
     async fn check_connection(&self, settings: &AppSettings) -> ConnectionResult {
@@ -477,6 +527,9 @@ impl LMStudioProvider {
         &self,
         settings: &AppSettings,
     ) -> AppResult<Vec<ModelAvailability>> {
+        if settings.ai_provider == "openai" {
+            return self.fetch_openai_models(settings).await;
+        }
         if let Some(models) = self.fetch_native_models(settings).await? {
             return Ok(models);
         }
@@ -609,6 +662,16 @@ impl LMStudioProvider {
     }
 
     async fn resolve_and_load_model(&self, settings: &AppSettings) -> AppResult<String> {
+        if settings.ai_provider == "openai" {
+            super::external::endpoint(settings, "chat/completions")?;
+            if settings.api_model.trim().is_empty() {
+                return Err(AppError::new(
+                    ErrorCode::InvalidSettings,
+                    "请填写 API 模型名称。",
+                ));
+            }
+            return Ok(settings.api_model.clone());
+        }
         let catalog = self.fetch_model_catalog(settings).await?;
         if catalog.is_empty() {
             return Err(AppError::new(
@@ -664,11 +727,16 @@ impl LMStudioProvider {
             return Ok(None);
         }
         if !response.status().is_success() {
+            let status = response.status().as_u16();
             return Err(AppError::new(
                 ErrorCode::LmstudioModelNotFound,
                 "LM Studio 无法加载所选模型，请检查内存/显存和模型文件。",
             )
-            .detail(format!("HTTP {}", response.status().as_u16())));
+            .detail(format!("HTTP {status}"))
+            .response_diagnostics(AIResponseDiagnostics {
+                http_status: Some(status),
+                ..Default::default()
+            }));
         }
         let body: LoadModelResponse = response.json().await.map_err(|error| {
             AppError::new(
@@ -700,7 +768,7 @@ impl LMStudioProvider {
                 "schema": output_schema.schema(),
             }
         });
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "model": model,
             "messages": [RequestMessage { role: "system", content: system }, RequestMessage { role: "user", content: user }],
             "temperature": settings.temperature,
@@ -709,6 +777,14 @@ impl LMStudioProvider {
             "response_format": response_format,
             "stream": false
         });
+        if settings.ai_provider == "openai" {
+            if settings.api_response_format == "json_object" {
+                body["response_format"] = serde_json::json!({"type":"json_object"});
+            }
+            if !settings.api_reasoning_supported {
+                body.as_object_mut().unwrap().remove("reasoning_effort");
+            }
+        }
         let started = Instant::now();
         let request = client.post(url).json(&body).send();
         let response = tokio::select! {
@@ -724,7 +800,11 @@ impl LMStudioProvider {
             };
             return Err(AppError::new(
                 ErrorCode::LmstudioConnectionFailed,
-                "LM Studio rejected the analysis request.",
+                if settings.ai_provider == "openai" {
+                    "外部 API 拒绝请求，请核对密钥、模型、额度及输出格式。"
+                } else {
+                    "LM Studio 拒绝分析请求。"
+                },
             )
             .detail(format!("HTTP {status}"))
             .stage("RESPONSE_RECEIVED")
@@ -903,8 +983,18 @@ fn diagnostic_value_length(value: &serde_json::Value) -> usize {
 }
 
 fn client(settings: &AppSettings) -> AppResult<Client> {
+    let mut headers = reqwest::header::HeaderMap::new();
+    if settings.ai_provider == "openai" && !settings.api_key.is_empty() {
+        let mut value =
+            reqwest::header::HeaderValue::from_str(&format!("Bearer {}", settings.api_key))
+                .map_err(|_| AppError::new(ErrorCode::InvalidSettings, "API 密钥包含无效字符。"))?;
+        value.set_sensitive(true);
+        headers.insert(reqwest::header::AUTHORIZATION, value);
+    }
     Ok(Client::builder()
         .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .default_headers(headers)
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_millis(settings.request_timeout_ms))
         .user_agent("paper-master/0.2.1")
@@ -923,6 +1013,9 @@ fn build_lm_studio_url(
     api: LmStudioApi,
     suffix: &str,
 ) -> AppResult<url::Url> {
+    if settings.ai_provider == "openai" {
+        return super::external::endpoint(settings, suffix);
+    }
     LmStudioEndpointBuilder::from_settings(settings)?.build(api, suffix)
 }
 
@@ -1356,6 +1449,56 @@ mod tests {
             .expect("loaded model");
         assert_eq!(loaded, "qwen/test");
         server.join().expect("server");
+    }
+
+    #[tokio::test]
+    async fn external_api_uses_bearer_custom_path_and_json_mode_without_native_load() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_request(&mut stream);
+            assert!(request.starts_with("POST /custom/v1/chat/completions "));
+            assert!(request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer test-only-key"));
+            let body: serde_json::Value =
+                serde_json::from_str(request.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+            assert_eq!(body["model"], "remote-model");
+            assert_eq!(body["response_format"]["type"], "json_object");
+            assert!(body.get("reasoning_effort").is_none());
+            write_json_response(
+                &mut stream,
+                r#"{"choices":[{"finish_reason":"stop","message":{"content":"{}"}}]}"#,
+            );
+        });
+        let s = AppSettings {
+            ai_provider: "openai".into(),
+            privacy_mode: "codex_online".into(),
+            api_base_url: format!("http://{address}/custom/v1"),
+            api_key: "test-only-key".into(),
+            api_model: "remote-model".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            LMStudioProvider.resolve_model(&s).await.unwrap(),
+            "remote-model"
+        );
+        LMStudioProvider
+            .send_chat(
+                "return JSON",
+                "test",
+                "remote-model",
+                &s,
+                CancellationToken::new(),
+                StructuredOutputSchema::PaperAnalysis,
+            )
+            .await
+            .unwrap();
+        server.join().unwrap();
+        let mut offline = s;
+        offline.privacy_mode = "local_only".into();
+        assert!(LMStudioProvider.resolve_model(&offline).await.is_err());
     }
 
     fn read_request(stream: &mut TcpStream) -> String {

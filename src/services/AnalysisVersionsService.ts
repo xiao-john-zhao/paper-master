@@ -4,6 +4,11 @@ import { invokeCommand, isTauriRuntime } from "../adapters/tauri/invokeCommand";
 
 export interface AnalysisVersion {
   id:string; paper_id:string; provider:string; model:string; created_at:string; updated_at:string;
+  profile?:{attempts:number;input_budget:number;input_characters:number;output_tokens:number;reasoning_effort:string;requested_context_length:number;reading?:{
+    strategy:string;source_characters:number;covered_characters:number;consolidation_rounds:number;
+    baseline?:{summary:string};audit?:{verdict:string;reason:string;quotes:string[]};
+    parts:Array<{start:number;end:number;input_budget:number;reasoning_effort:string;note:{summary:string;claims:Array<{category:string;finding:string;quote:string}>}}>;
+  }};
   revision:number; edited:boolean; active:boolean; result:PaperAnalysisResult;
 }
 export class AnalysisVersionsService {
@@ -13,8 +18,14 @@ export class AnalysisVersionsService {
   constructor(private readonly papers:PaperRepository) {}
   async list(paper:Paper):Promise<AnalysisVersion[]> {
     if (isTauriRuntime()) return invokeCommand("list_analysis_versions",{paperId:paper.id});
-    if (!this.cache.has(paper.id)) this.cache.set(paper.id,paper.analysis ? [{id:`preview-${paper.id}`,paper_id:paper.id,provider:"mock",model:"界面演示",created_at:paper.created_at,updated_at:paper.updated_at,revision:0,edited:false,active:true,result:structuredClone(paper.analysis)}] : []);
-    return structuredClone(this.cache.get(paper.id)!);
+    paper=await this.papers.findById(paper.id)??paper;
+    if (!this.cache.has(paper.id) || (!this.cache.get(paper.id)?.length && paper.analysis)) this.cache.set(paper.id,paper.analysis ? [{id:`preview-${paper.id}`,paper_id:paper.id,provider:"mock",model:"界面演示",created_at:paper.created_at,updated_at:paper.updated_at,revision:0,edited:false,active:true,result:structuredClone(paper.analysis)}] : []);
+    const versions=this.cache.get(paper.id)!;
+    if(paper.analysis && versions.length && JSON.stringify(versions.find(v=>v.active)?.result)!==JSON.stringify(paper.analysis)) {
+      for(const version of versions)version.active=false;
+      versions.unshift({id:`preview-${paper.id}-${paper.updated_at}`,paper_id:paper.id,provider:"mock",model:"界面演示",created_at:paper.updated_at,updated_at:paper.updated_at,revision:0,edited:false,active:true,result:structuredClone(paper.analysis)});
+    }
+    return structuredClone(versions);
   }
   async select(version:AnalysisVersion) {
     if (isTauriRuntime()) return invokeCommand<AnalysisVersion>("select_analysis_version",{paperId:version.paper_id,id:version.id});

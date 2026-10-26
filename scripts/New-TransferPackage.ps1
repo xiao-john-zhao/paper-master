@@ -50,7 +50,7 @@ function Test-ExcludedPath {
         return $true
     }
 
-    if ($path -match '(^|/)(node_modules|\.pnpm-store|\.cargo-home|dist|target|handoff|library-cache)(/|$)') {
+    if ($path -match '(^|/)(node_modules|\.pnpm-store|\.cargo-home|dist|target|handoff|library-cache|program file|data|logs)(/|$)') {
         return $true
     }
 

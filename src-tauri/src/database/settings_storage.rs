@@ -55,8 +55,23 @@ impl SettingsStorage for SqliteSettingsStorage<'_> {
 }
 
 fn validate(settings: &AppSettings) -> AppResult<()> {
-    if !matches!(settings.ai_provider.as_str(), "lmstudio" | "mock" | "codex") {
+    if !matches!(
+        settings.ai_provider.as_str(),
+        "lmstudio" | "mock" | "codex" | "openai"
+    ) {
         return Err(invalid("Unknown AI provider."));
+    }
+    if settings.ai_provider == "openai" {
+        crate::ai::external::configured_endpoint(settings, "models")?;
+        if settings.api_model.trim().is_empty() {
+            return Err(invalid("请填写 API 模型名称。"));
+        }
+    }
+    if !matches!(
+        settings.api_response_format.as_str(),
+        "json_schema" | "json_object"
+    ) {
+        return Err(invalid("请选择 JSON Schema 或 JSON Object 输出格式。"));
     }
     let parsed = url::Url::parse(&settings.base_url)
         .map_err(|_| invalid("Base URL must be a valid local HTTP URL."))?;
@@ -95,7 +110,8 @@ fn validate(settings: &AppSettings) -> AppResult<()> {
         ));
     }
     if !(4096..=131_072).contains(&settings.model_context_length)
-        || settings.max_output_tokens + 2048 >= settings.model_context_length
+        || (settings.effective_provider() == "lmstudio"
+            && settings.max_output_tokens + 2048 >= settings.model_context_length)
     {
         return Err(invalid(
             "模型上下文需在 4096–131072 token 范围，且应为输入预留至少 2048 token。",

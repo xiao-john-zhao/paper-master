@@ -1,9 +1,9 @@
-# 统一应用
+# paper-master v0.4.3
 
-当前版本 v0.4.2。统一启动入口为 `paper-master.exe`，并保留 `paper-master-v0.4.2.exe` 供版本核对。在线能力通过 Settings 中的联网开关控制并保存。`scripts/Start-Local.ps1` 直接启动该文件；本机模型是可选运行时。
+本机统一启动入口：`paper-master.exe`。带版本备份：`paper-master-v0.4.3.exe`。
 
-用 `pwsh -File scripts/Build-Local.ps1` 重建。可执行文件及快捷方式不提交 Git。历史 local/updated 二进制移至 `handoff/legacy-apps-20261024/`，仅供回退。
+普通用户建议使用 [GitHub Release](https://github.com/xiao-john-zhao/paper-master/releases) 的中文 Windows x64 安装器或分享 ZIP：无需开发环境，安装器内含 WebView2 离线运行时。
 
-安装包：`src-tauri/target/release/bundle/nsis/paper-master_0.4.2_x64-setup.exe`。数据库继续使用同一个应用标识和数据目录；新增 `%APPDATA%/app.papermaster.desktop/library-cache/v1/` 缓存，启动时自动补回缺失论文及分析。论文详情保留编辑接口，Diagnostics 中可打开、同步或恢复缓存。
+[中文下载安装使用指南](../docs/下载安装使用指南.md) 说明 AI 结果编辑、图谱局部缩放、LM Studio/其他 API 配置、语义基准与分段分析、缓存备份及分享。
 
-`paper-master.exe --sync-cache` 可在备份原数据库后执行本地缓存维护。构建前运行 `pwsh -File scripts/Check-Version.ps1`，Build-Local 已集成该校验和原入口备份。本次 v0.4.0 入口备份位于 `handoff/release-backups/`。
+可执行文件由 `scripts/Build-Local.ps1` 在全部测试通过后构建并复制到本目录；此前主入口自动备份到忽略的 handoff/release-backups。二进制、个人论文、密钥及模型不进入 Git。

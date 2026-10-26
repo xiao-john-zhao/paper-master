@@ -1,3 +1,9 @@
+# v0.4.3 当前安装与构建入口（2026-10-27）
+
+普通用户安装和配置请以 [中文使用指南](docs/下载安装使用指南.md) 为准。本机启动 application/paper-master.exe；开发发布运行 scripts/Build-Local.ps1，再运行 scripts/New-ReleasePackage.ps1 生成只含安装器、文档、可选 LM Studio 安装入口和校验文件的 Windows 分享 ZIP。
+
+本次安装器包含 WebView2 离线运行时；LM Studio 和模型仍为可选外部软件，不复制本机运行时或用户数据。下面的旧部署记录保留为历史环境参考。
+
 # v0.4.0 current deployment
 
 Run `application/paper-master.exe` or `pwsh -File scripts/Start-Local.ps1`. Network access is a saved Settings switch in this same binary. Normal startup does not initialize LM Studio; optional runtime check: `pwsh -File scripts/Start-Local.ps1 -CheckOnly`. Old local/updated executables are archived as fallback copies. Complete release notes: docs/2026-10-24-v0.4.0-unified-archive.md.

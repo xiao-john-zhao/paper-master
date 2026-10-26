@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "paper-master",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "identifier": "app.papermaster.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -33,8 +33,11 @@
     "shortDescription": "Private local research paper manager",
     "longDescription": "paper-master manages and analyzes local research papers with a local LM Studio model.",
     "windows": {
+      "webviewInstallMode": {"type":"offlineInstaller"},
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": true
       }
     }
   }

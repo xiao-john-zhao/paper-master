@@ -108,12 +108,18 @@ pub fn settings_for(
                 )
             })?;
         if let Some(json) = snapshot {
-            return serde_json::from_str(&json).map_err(|_| {
-                crate::error::AppError::new(
-                    crate::error::ErrorCode::InvalidSettings,
-                    "分析任务配置无效。",
-                )
-            });
+            let mut settings: crate::domain::settings::AppSettings = serde_json::from_str(&json)
+                .map_err(|_| {
+                    crate::error::AppError::new(
+                        crate::error::ErrorCode::InvalidSettings,
+                        "分析任务配置无效。",
+                    )
+                })?;
+            let current = SqliteSettingsStorage::new(connection).get()?;
+            if current.privacy_mode != "codex_online" {
+                settings.privacy_mode = "local_only".into();
+            }
+            return Ok(settings);
         }
     }
     SqliteSettingsStorage::new(connection).get()

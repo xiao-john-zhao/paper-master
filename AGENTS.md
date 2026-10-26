@@ -17,6 +17,7 @@
 ## 不可破坏的项目约束
 
 - 项目是 Windows 本地优先的论文管理器。不得把论文内容、完整提示词、模型推理或数据库内容写入日志或云端服务。
+- 2026-10-26 用户明确要求恢复其他 API 接入：在用户启用联网并选择 openai 兼容服务时，允许向所配置服务提交有界论文证据进行分析/比较，密钥仅保存在本机设置。LM Studio 的回环约束继续独立生效，日志与分享包不包含论文、提示词、密钥或 reasoning。
 - 2026-10-23 用户明确要求新增 Codex 在线检索与阅读总结：仅在用户启用 `codex_online` 时，允许 Codex adapter 向在线服务提交自然语言检索需求、所选参考论文的有界题名/作者信息或有界论文证据。这是上述云端限制的明确例外；数据库、学校凭据、完整无界原文和模型推理仍不得发送，诊断日志仍不得记录论文和提示词。
 - 导入的 PDF 必须原地保留；应用和测试不得移动、覆盖或删除源 PDF。
 - LM Studio 仅允许回环地址。不要放宽为远程主机，也不要假设开发机已安装或正在运行 LM Studio。
@@ -44,5 +45,5 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ## 文档和发布
 
 - 行为、版本、测试基线或运行方式变化时，同步更新 `README.md`、`CHANGELOG.md`、`VALIDATION.md` 或 `CODEX_HANDOFF.md` 中相关部分。
-- 当前版本为 `v0.4.2`，下一维护目标版本为 `v0.4.3`。不要在没有版本决策的情况下修改三个版本源：`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`。
+- 当前版本为 `v0.4.3`，下一维护目标版本为 `v0.4.4`。不要在没有版本决策的情况下修改三个版本源：`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`。
 - 使用 `scripts/New-TransferPackage.ps1` 生成迁移包。生成的 `handoff/` 目录不进入 Git。

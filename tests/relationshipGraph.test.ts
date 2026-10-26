@@ -1,9 +1,19 @@
 import { describe,expect,it } from "vitest";
-import { buildRelationshipGraph,layoutGraph,graphSvg,graphPoint } from "../src/domain/paper/RelationshipGraph";
+import { buildRelationshipGraph,layoutGraph,graphSvg,graphPoint,zoomGraphAt,graphLabelLines } from "../src/domain/paper/RelationshipGraph";
 import type { Paper } from "../src/domain/paper/Paper";
 
 const paper=(id:string,tags:string[],authors:string[]=[]):Paper=>({id,title:`Paper ${id}`,authors,tags,file_name:`${id}.pdf`,file_path:`/${id}.pdf`,created_at:`2026-10-0${id}`,updated_at:"now",analysis_status:"analyzed"});
 describe("source-backed relationship graph",()=>{
+  it("keeps a panned world point anchored under the cursor and reveals complete labels",()=>{
+    const pan={x:140,y:-85},zoom=1.7,point={x:700,y:280};
+    const anchor=graphPoint(point,zoom,pan);
+    const next=zoomGraphAt(zoom,pan,4.2,anchor);
+    const projected=graphPoint(point,next.zoom,next.pan);
+    expect(projected.x).toBeCloseTo(anchor.x);expect(projected.y).toBeCloseTo(anchor.y);
+    expect(zoomGraphAt(1,pan,100).zoom).toBe(12);
+    const label="多无人机通信与感知资源分配关联关系中的完整研究方法与实验标题";
+    const lines=graphLabelLines(label,12);expect(lines.length).toBeGreaterThan(1);expect(lines.join("")).toBe(label);
+  });
   it("zooms graph coordinates independently of glyph sizes",()=>{
     const a=graphPoint({x:600,y:400},1,{x:0,y:0});
     const b=graphPoint({x:600,y:400},2,{x:0,y:0});

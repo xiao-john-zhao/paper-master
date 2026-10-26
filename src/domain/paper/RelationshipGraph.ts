@@ -11,6 +11,17 @@ const palette=["#4468d8","#159b91","#a674d1","#df9850","#6296c8","#d67490"];
 export function graphPoint(point: {x:number;y:number}, zoom:number, pan:{x:number;y:number}) {
   return { x:550+(point.x-550)*zoom+pan.x, y:340+(point.y-340)*zoom+pan.y };
 }
+/** Preserve the world point under the cursor while changing the camera, not glyph scale. */
+export function zoomGraphAt(zoom:number,pan:{x:number;y:number},next:number,anchor={x:550,y:340}) {
+  const bounded=Math.max(.2,Math.min(12,next));
+  const ratio=bounded/zoom;
+  return {zoom:bounded,pan:{x:anchor.x-550-(anchor.x-550-pan.x)*ratio,y:anchor.y-340-(anchor.y-340-pan.y)*ratio}};
+}
+export function graphLabelLines(label:string,width=32) {
+  const lines:string[]=[];let line="",units=0;
+  for(const char of label) { const n=/[\u0000-\u00ff]/.test(char)?.55:1;if(units+n>width){lines.push(line);line="";units=0;}line+=char;units+=n; }
+  if(line)lines.push(line);return lines;
+}
 const key=(text:string)=>text.trim().replace(/\s+/g," ").toLocaleLowerCase();
 function unique(values:string[]) { return [...new Map(values.map(value=>[key(value),value.trim()])).entries()].filter(([value])=>value.length>0); }
 

@@ -1,3 +1,17 @@
+# v0.4.3 接管要点（2026-10-27）
+
+发布范围：明确 AI 全字段编辑入口、锚定矢量缩放及局部图谱、独立 OpenAI 兼容 API、带语义基准和全文分段回退的本地分析、中文安装包及私有 GitHub 分发。
+
+AI staged.rs 执行“有原文引文的整体语义基准 → 最高参数直接分析 → 降推理/降输入预算直接分析 → 全文重叠分段 → 分层综合 → 有界原文语义复核”。只能在 LM Studio 且 adaptive_analysis 开启时使用，避免默增在线调用费用。基准非真值，原文优先；supported 仅是一致性复核，不是正确性概率。分段最大256段/综合16层，不能省略失败段或默截原文；无通过的最终结果不得 append。取消覆盖全部阶段。
+
+成功参数与 ReadingReport 在现有 settings 表按 analysis-profile:<version_id> 保存，和新分析版本/当前投影在同一事务提交；没有数据库结构变更，无需新迁移。library cache 格式2读1/2，目录仍v1；恢复包括报告及人工修订。人工编辑后的显示必须说明模型复核针对生成原文。
+
+外部 API provider=openai，单独 api_base_url/api_model/api_key/api_response_format/api_reasoning_supported；Chat Completions 复用本地中文、结构和证据校验；在线门控在实际 transport 生效。LM Studio 本机地址规则不能放宽。队列快照不得绕过当前已撤销的联网授权。
+
+GitHub 私有仓库 xiao-john-zhao/paper-master。普通用户下载 Release 的 NSIS 或 Windows ZIP；源码迁移脚本继续单独使用，排除 program file/data/logs 等个人目录。LM Studio 为可选外部运行时，分享包仅附联网安装脚本，不带程序或模型。
+
+版本源已决定为0.4.3；下一目标0.4.4。最终基线见 VALIDATION.md，中文用户指南见 docs/下载安装使用指南.md。不要把下面的历史版本说明当作现行发布状态。
+
 # v0.4.2 接管要点（2026-10-25）
 
 当前版本 v0.4.2，下一目标 v0.4.3。用户本轮要求模型/时间标注、缓存可更换搬运、纠正伪完成分析、多关键词复选与固定字号图谱缩放；追加要求修改完成后用 LM Studio 本地补齐分析。

@@ -1,3 +1,18 @@
+# v0.4.3 发布验证（2026-10-27）
+
+最终命令：`pwsh -File scripts/Build-Local.ps1`，退出码0。按脚本顺序完成锁文件依赖安装、前端测试、后端测试、TypeScript/Vite生产构建、Rust release编译、NSIS打包和本机应用替换。`scripts/Check-Version.ps1`退出码0，五处版本源/锁记录一致为0.4.3。
+
+- 前端：8个文件、29项通过。包含九类AI字段编辑保存/恢复、修订状态、锚定缩放坐标不缩放字形、节点局部筛选/聚焦/重置。
+- 后端：93项通过、0失败、7项实时外部测试ignored。新增Bearer/自定义服务前缀/JSON模式传输、联网门控、逐篇参数重置、失败分级重建材料、原文引文校验、全分段覆盖/分层综合/语义复核、复核冲突不替换旧版本、取消及报告缓存恢复。
+- 分段故障注入：先记录baseline，模拟direct失败，再覆盖约8万字符原文；最后的限制条件在多轮综合后仍保留。冲突复核拒绝新版本，旧选择继续保留。测试使用隔离内存库和模拟服务，不是实时LM Studio推理。
+- Windows x64中文NSIS构建通过，含WebView2离线运行时。安装器222470375字节，SHA256 `e95496d2c7585057d8b715017b69d9c3a9362169ddee0c1d630d42193bebdfa7`。
+- `scripts/New-ReleasePackage.ps1`退出码0。ZIP CRC通过，内容严格为安装器、中文指南、可选LM Studio脚本、SHA256SUMS；内外安装器SHA256一致。本机application主入口与构建EXE的SHA256一致。
+- 待提交文件列表未包含PDF、数据库、EXE、环境文件、凭据TXT、program file或模型；已对源码做常见令牌模式扫描，无命中。Git历史对象路径未发现上述个人文件。分享ZIP不包含Git历史或个人数据。
+
+本轮实际修复的验证失败：首次`pnpm build`退出码1，AIProvider.id未扩展openai；补齐统一类型后通过。新编辑测试首次`pnpm test`退出码1，保存后使用旧paper对象导致preview版本修订状态被覆盖；改为从repository读取当前投影后通过。首次分段接线`cargo test --locked --manifest-path src-tauri/Cargo.toml`退出码101，进度usize未转u64；修正后通过。最终完整脚本无失败。
+
+限制：没有重新运行真实LM Studio/付费API推理，没有在另一台全新Windows电脑安装验收。桌面交互自动验证因浏览器后端不可用/原生浏览器地址识别受限未完成，不能把DOM交互测试写成桌面人工验收。Windows二进制依赖检查仅见系统DLL及UCRT，未引入额外开发工具链依赖。语义复核为有界证据启发式，不是正确性证明、最优性证明或校准概率。分段中间状态退出后重跑，不保留为完成分析。当前编译仍有此前的dead_code/linker提示，无新增测试失败。
+
 # v0.4.2 verification — 2026-10-25
 
 - Frontend: 26 tests passed across 7 files, TypeScript/Vite production build passed (152 modules). Checks cover persistent multi-tag checkboxes/intersection, truthful model/time labels, and coordinate zoom with unchanged text size/node radii.

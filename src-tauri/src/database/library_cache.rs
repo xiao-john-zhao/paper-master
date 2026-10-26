@@ -15,7 +15,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CacheStatus {
@@ -74,7 +74,7 @@ pub(super) fn file_name(id: &str) -> String {
 pub(super) fn read(path: &Path) -> AppResult<Entry> {
     let data = fs::read(path).map_err(|_| failure())?;
     let entry: Entry = serde_json::from_slice(&data).map_err(|_| failure())?;
-    if entry.cache_schema_version != SCHEMA_VERSION
+    if !(1..=SCHEMA_VERSION).contains(&entry.cache_schema_version)
         || entry.paper_id.is_empty()
         || entry.paper.as_ref().is_some_and(|p| p.id != entry.paper_id)
         || entry.versions.iter().any(|v| {
@@ -329,6 +329,19 @@ fn restore_entry(connection: &Connection, entry: &Entry) -> AppResult<usize> {
     let mut count = usize::from(is_new);
     for cached in &entry.versions {
         let v = &cached.version;
+        if let Some(profile) = &v.profile {
+            connection
+                .execute(
+                    "INSERT OR IGNORE INTO settings(key,value_json,updated_at) VALUES(?1,?2,?3)",
+                    params![
+                        format!("analysis-profile:{}", v.id),
+                        serde_json::to_string(profile).map_err(|_| failure())?,
+                        v.updated_at
+                    ],
+                )
+                .map_err(|_| failure())?;
+        }
+
         let owner: Option<String> = connection
             .query_row(
                 "SELECT paper_id FROM analysis_versions WHERE id=?1",
@@ -429,6 +442,28 @@ mod tests {
             .unwrap();
             analysis_versions::append(&c, "p", "codex", "online-model", &result("另一模型总结"))
                 .unwrap();
+            let profile = crate::ai::adaptive::AnalysisProfile {
+                reading: Some(crate::ai::staged::ReadingReport {
+                    strategy: "segmented".into(),
+                    source_characters: 12000,
+                    covered_characters: 12000,
+                    ..Default::default()
+                }),
+                attempts: 3,
+                input_budget: 14000,
+                input_characters: 12000,
+                output_tokens: 4096,
+                reasoning_effort: "none".into(),
+                requested_context_length: 24576,
+            };
+            c.execute(
+                "INSERT INTO settings VALUES(?1,?2,'2026')",
+                params![
+                    format!("analysis-profile:{}", a.id),
+                    serde_json::to_string(&profile).unwrap()
+                ],
+            )
+            .unwrap();
             analysis_versions::edit(&c, "p", &a.id, 0, &result("人工修改总结")).unwrap();
             analysis_versions::select(&c, "p", &a.id).unwrap();
             c.execute(
@@ -453,6 +488,18 @@ mod tests {
         assert_eq!(selected.id, a.id);
         assert!(selected.edited);
         assert_eq!(selected.revision, 1);
+        assert_eq!(selected.profile.as_ref().unwrap().attempts, 3);
+        assert_eq!(
+            selected
+                .profile
+                .as_ref()
+                .unwrap()
+                .reading
+                .as_ref()
+                .unwrap()
+                .covered_characters,
+            12000
+        );
         assert_eq!(selected.result.ai_summary, "人工修改总结");
         let original: String = c
             .query_row(

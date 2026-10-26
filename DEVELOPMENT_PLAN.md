@@ -1,3 +1,7 @@
+# Current release: v0.4.3 (2026-10-27)
+
+Next maintenance target: v0.4.4. Accepted scope completed in source: AI result editing, detailed graph navigation, external API port, baseline/direct/degraded/segmented analysis and evidence review, private GitHub distribution with Chinese user documentation and easy Windows installation. Real-model performance and fresh-PC installation remain environment-dependent validation work; do not conflate isolated failure-injection tests with live inference. Historical plans follow.
+
 # Current release: v0.4.2 (2026-10-25)
 
 Next maintenance target: v0.4.3. Model provenance, relocatable caches, truthful extraction states, multi-keyword selection and coordinate-based graph zoom are implemented in v0.4.2. Version-neutral local recovery files, automatic startup recovery and editable analysis preservation are implemented in v0.4.1. Unified application/network gate, multi-model results/editing, canonical keywords, candidate-team graph and full local-corpus archive are implemented. Follow-up quality work: improve metadata extraction for the 143 flagged PDF records, extend reviewed vocabulary, and revalidate the complete local-model pipeline after runtime recovery. Historical accepted scopes follow below.

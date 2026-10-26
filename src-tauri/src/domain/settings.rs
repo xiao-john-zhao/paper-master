@@ -15,6 +15,18 @@ pub struct AppSettings {
     #[serde(default = "default_context_length")]
     pub model_context_length: u32,
     pub base_url: String,
+    #[serde(default)]
+    pub api_base_url: String,
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default)]
+    pub api_model: String,
+    #[serde(default = "default_api_format")]
+    pub api_response_format: String,
+    #[serde(default)]
+    pub api_reasoning_supported: bool,
+    #[serde(default = "default_auto_analyze")]
+    pub adaptive_analysis: bool,
     pub model: String,
     pub temperature: f32,
     pub request_timeout_ms: u64,
@@ -43,6 +55,12 @@ impl Default for AppSettings {
             reasoning_effort: default_reasoning_effort(),
             model_context_length: default_context_length(),
             base_url: DEFAULT_LM_STUDIO_URL.to_string(),
+            api_base_url: String::new(),
+            api_key: String::new(),
+            api_model: String::new(),
+            api_response_format: default_api_format(),
+            api_reasoning_supported: false,
+            adaptive_analysis: true,
             model: String::new(),
             temperature: DEFAULT_TEMPERATURE,
             request_timeout_ms: DEFAULT_TIMEOUT_MS,
@@ -61,6 +79,10 @@ impl Default for AppSettings {
 
 fn default_max_output_tokens() -> u32 {
     DEFAULT_MAX_OUTPUT_TOKENS
+}
+
+fn default_api_format() -> String {
+    "json_object".into()
 }
 
 fn default_auto_analyze() -> bool {

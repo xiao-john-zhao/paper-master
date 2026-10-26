@@ -4,7 +4,7 @@ export function analysisSource(version: AnalysisVersion) {
   if (version.provider === "extractive") return `原文摘录（非模型）${version.edited ? " · 人工修订" : ""}`;
   if (version.provider === "legacy") return "历史分析 · 原模型未记录";
   if (version.provider === "mock") return `演示模型 · ${version.model || "Mock"}`;
-  const provider = version.provider === "lmstudio" ? "LM Studio" : version.provider === "codex" ? "Codex" : version.provider;
+  const provider = version.provider === "lmstudio" ? "LM Studio" : version.provider === "codex" ? "Codex" : version.provider === "openai" ? "外部 API" : version.provider;
   const unknown = !version.model || ["auto", "Codex CLI default"].includes(version.model);
   return `${provider} · ${unknown ? "具体模型未记录" : version.model}`;
 }

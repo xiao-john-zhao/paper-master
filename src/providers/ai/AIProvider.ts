@@ -3,7 +3,7 @@ import type { AnalysisRequest, CompareRequest, ConnectionResult, PaperComparison
 import type { AppSettings } from "../../settings/types";
 
 export interface AIProvider {
-  readonly id: "lmstudio" | "mock" | "codex";
+  readonly id: import("../../settings/types").AIProviderId;
   checkConnection(settings?: AppSettings): Promise<ConnectionResult>;
   getModels(settings?: AppSettings): Promise<string[]>;
   loadModel(settings?: AppSettings): Promise<ConnectionResult>;

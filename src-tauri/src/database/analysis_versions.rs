@@ -4,7 +4,7 @@ use crate::{
     error::{AppError, AppResult, ErrorCode},
 };
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,6 +19,8 @@ pub struct AnalysisVersion {
     pub edited: bool,
     pub active: bool,
     pub result: PaperAnalysisResult,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<crate::ai::adaptive::AnalysisProfile>,
 }
 fn failure() -> AppError {
     AppError::new(
@@ -49,11 +51,24 @@ pub fn list(connection: &Connection, paper_id: &str) -> AppResult<Vec<AnalysisVe
                 edited: row.get(7)?,
                 result,
                 active: row.get(9)?,
+                profile: None,
             })
         })
         .map_err(|_| failure())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| failure())?;
+    let mut rows = rows;
+    for row in &mut rows {
+        let json: Option<String> = connection
+            .query_row(
+                "SELECT value_json FROM settings WHERE key=?1",
+                [format!("analysis-profile:{}", row.id)],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|_| failure())?;
+        row.profile = json.and_then(|s| serde_json::from_str(&s).ok());
+    }
     Ok(rows)
 }
 
@@ -115,6 +130,7 @@ pub fn append(
         revision: 0,
         edited: false,
         active: true,
+        profile: None,
         result,
     };
     atomic(connection, || {

@@ -154,9 +154,13 @@ pub(crate) async fn run_analysis(
                     .any(|v| {
                         v.active
                             && v.provider == settings.effective_provider()
-                            && (settings.effective_provider() != "lmstudio"
-                                || settings.model.is_empty()
-                                || v.model == settings.model)
+                            && match settings.effective_provider() {
+                                "lmstudio" => {
+                                    settings.model.is_empty() || v.model == settings.model
+                                }
+                                "openai" => v.model == settings.api_model,
+                                _ => true,
+                            }
                     });
                 if paper.analysis_status == "analyzed" && has_model {
                     if let Some(analysis) = paper.analysis {
@@ -322,11 +326,166 @@ async fn analyze_inner(
         .counts(2, Some(4), "steps"),
     );
 
-    let response = tokio::select! {
-        biased;
-        _ = token.cancelled() => Err(AppError::new(ErrorCode::AiCancelled, "AI 分析已取消。")),
-        response = provider.analyze_paper(&input, &settings, token.clone()) => response,
+    let staged = settings.adaptive_analysis
+        && settings.effective_provider() == "lmstudio"
+        && provider.supports_staged_analysis();
+    let mut reading = crate::ai::staged::ReadingReport {
+        strategy: "direct".into(),
+        source_characters: extracted_text.chars().count(),
+        ..Default::default()
     };
+    let mut extra_calls = 0;
+    if staged {
+        requests.report(TaskProgress::running(
+            &request.request_id,
+            "analysis",
+            "先建立有原文证据的整体语义基准",
+        ));
+        extra_calls += 1;
+        match crate::ai::staged::baseline(
+            provider.as_ref(),
+            &paper,
+            &extracted_text,
+            &settings,
+            &token,
+        )
+        .await
+        {
+            Ok(note) => reading.baseline = Some(note),
+            Err(error) => {
+                if !crate::ai::adaptive::retryable(&error) {
+                    return Err(error);
+                }
+            }
+        }
+    }
+    let profiles = crate::ai::adaptive::profiles(&settings);
+    let mut used_settings;
+    let mut attempts = 0;
+    let mut response = loop {
+        used_settings = profiles[attempts].clone();
+        attempts += 1;
+        if attempts > 1 {
+            let tags: String = managed_tags
+                .chars()
+                .take(used_settings.max_analysis_input_characters / 8)
+                .collect();
+            input = PaperAnalysisInputBuilder::new(
+                used_settings
+                    .max_analysis_input_characters
+                    .saturating_sub(tags.chars().count()),
+            )
+            .build(&paper, &extracted_text)?;
+            input.push_str(&tags);
+            requests.report(TaskProgress::running(
+                &request.request_id,
+                "analysis",
+                &format!(
+                    "自适应重试 {}/{}：输入预算 {} 字符，输出上限 {} token，推理 {}",
+                    attempts,
+                    profiles.len(),
+                    used_settings.max_analysis_input_characters,
+                    used_settings.max_output_tokens,
+                    used_settings.reasoning_effort
+                ),
+            ));
+        }
+        let mut response = tokio::select! {
+            biased;
+            _ = token.cancelled() => Err(AppError::new(ErrorCode::AiCancelled,"AI 分析已取消。")),
+            response=provider.analyze_paper(&input,&used_settings,token.clone())=>response,
+        };
+        if staged {
+            if let Ok(value) = &response {
+                requests.report(TaskProgress::running(
+                    &request.request_id,
+                    "analysis",
+                    "复核整体语义基准与原文证据的一致性",
+                ));
+                if reading.baseline.is_none() {
+                    extra_calls += 1;
+                    reading.baseline = crate::ai::staged::baseline(
+                        provider.as_ref(),
+                        &paper,
+                        &extracted_text,
+                        &used_settings,
+                        &token,
+                    )
+                    .await
+                    .ok();
+                }
+                if let Some(baseline) = &reading.baseline {
+                    extra_calls += 1;
+                    let review_evidence =
+                        PaperAnalysisInputBuilder::new(1800).build(&paper, &extracted_text)?;
+                    match crate::ai::staged::audit(
+                        provider.as_ref(),
+                        &value.value,
+                        baseline,
+                        &review_evidence,
+                        &extracted_text,
+                        &used_settings,
+                        &token,
+                    )
+                    .await
+                    {
+                        Ok(review) => reading.audit = Some(review),
+                        Err(error) => response = Err(error),
+                    }
+                } else {
+                    response = Err(AppError::new(
+                        ErrorCode::AiSchemaValidationFailed,
+                        "整体语义基准未生成，本次分析无法完成复核。",
+                    ));
+                }
+            }
+        }
+        match &response {
+            Err(error) if attempts < profiles.len() && crate::ai::adaptive::retryable(error) => {
+                continue
+            }
+            _ => break response,
+        }
+    };
+    if staged && response.as_ref().is_err_and(crate::ai::adaptive::retryable) {
+        requests.report(TaskProgress::running(
+            &request.request_id,
+            "analysis",
+            "直接分析方案均失败，改为完整分段阅读与分层综合",
+        ));
+        let split = tokio::select! {
+            biased;
+            _=token.cancelled()=>Err(AppError::new(ErrorCode::AiCancelled,"AI 分析已取消。")),
+            result=crate::ai::staged::split_analyze(
+            provider.as_ref(),
+            &paper,
+            &extracted_text,
+            &settings,
+            reading.baseline.take(),
+            &token,
+            |stage, done, total| {
+                requests.report(
+                    TaskProgress::running(&request.request_id, "analysis", stage).counts(
+                        done as u64,
+                        Some(total as u64),
+                        "characters",
+                    ),
+                )
+            },
+        )=>result,
+        };
+        response = match split {
+            Ok(outcome) => {
+                used_settings = outcome.settings;
+                attempts += outcome.calls;
+                reading = outcome.report;
+                input = outcome.input;
+                Ok(outcome.response)
+            }
+            Err(error) => Err(error),
+        };
+    }
+    attempts += extra_calls;
     match response {
         Ok(response) => {
             requests.report(
@@ -341,6 +500,7 @@ async fn analyze_inner(
                 match provider.id() {
                     "lmstudio" => "ai.lmstudio",
                     "codex" => "ai.codex",
+                    "openai" => "ai.openai",
                     _ => "ai.mock",
                 },
                 "response",
@@ -370,6 +530,7 @@ async fn analyze_inner(
                 match provider.id() {
                     "lmstudio" => "ai.lmstudio",
                     "codex" => "ai.codex",
+                    "openai" => "ai.openai",
                     _ => "ai.mock",
                 },
                 "extract_final_content",
@@ -399,8 +560,11 @@ async fn analyze_inner(
             logger.log(parse_event);
 
             let connection = database.connection()?;
+            let transaction = connection
+                .unchecked_transaction()
+                .map_err(|_| AppError::new(ErrorCode::DatabaseWriteFailed, "无法开始结果保存。"))?;
             let saved_version = crate::database::analysis_versions::append(
-                &connection,
+                &transaction,
                 &paper.id,
                 provider.id(),
                 response
@@ -413,6 +577,31 @@ async fn analyze_inner(
                     }),
                 &response.value,
             )?;
+            let profile = crate::ai::adaptive::AnalysisProfile {
+                reading: if staged { Some(reading) } else { None },
+                attempts,
+                input_budget: used_settings.max_analysis_input_characters,
+                input_characters: input.chars().count(),
+                output_tokens: used_settings.max_output_tokens,
+                reasoning_effort: used_settings.reasoning_effort.clone(),
+                requested_context_length: used_settings.model_context_length,
+            };
+            transaction
+                .execute(
+                    "INSERT INTO settings(key,value_json,updated_at) VALUES(?1,?2,?3)",
+                    rusqlite::params![
+                        format!("analysis-profile:{}", saved_version.id),
+                        serde_json::to_string(&profile).map_err(|_| AppError::new(
+                            ErrorCode::Internal,
+                            "分析参数无法保存。"
+                        ))?,
+                        Utc::now().to_rfc3339()
+                    ],
+                )
+                .map_err(|_| AppError::new(ErrorCode::DatabaseWriteFailed, "分析参数无法保存。"))?;
+            transaction
+                .commit()
+                .map_err(|_| AppError::new(ErrorCode::DatabaseWriteFailed, "分析结果未提交。"))?;
             drop(connection);
             paper.analysis = Some(saved_version.result.clone());
             paper.tags = response.value.tags.clone();
@@ -926,6 +1115,125 @@ mod tests {
                 .collect::<Vec<_>>()
         )
         .is_err());
+    }
+
+    struct FailingLocal {
+        calls: std::sync::Mutex<Vec<(usize, String)>>,
+    }
+    #[async_trait::async_trait]
+    impl crate::ai::AIProvider for FailingLocal {
+        fn id(&self) -> &'static str {
+            "lmstudio"
+        }
+        async fn check_connection(&self, s: &AppSettings) -> ConnectionResult {
+            crate::ai::mock::MockAIProvider.check_connection(s).await
+        }
+        async fn get_models(&self, s: &AppSettings) -> AppResult<Vec<String>> {
+            crate::ai::mock::MockAIProvider.get_models(s).await
+        }
+        async fn load_model(&self, s: &AppSettings) -> AppResult<String> {
+            crate::ai::mock::MockAIProvider.load_model(s).await
+        }
+        async fn generate_tags(
+            &self,
+            i: &str,
+            s: &AppSettings,
+            c: tokio_util::sync::CancellationToken,
+        ) -> AppResult<Vec<String>> {
+            crate::ai::mock::MockAIProvider.generate_tags(i, s, c).await
+        }
+        async fn compare_papers(
+            &self,
+            i: &str,
+            s: &AppSettings,
+            c: tokio_util::sync::CancellationToken,
+        ) -> AppResult<crate::ai::ProviderResponse<PaperComparisonResult>> {
+            crate::ai::mock::MockAIProvider
+                .compare_papers(i, s, c)
+                .await
+        }
+        async fn analyze_paper(
+            &self,
+            i: &str,
+            s: &AppSettings,
+            c: tokio_util::sync::CancellationToken,
+        ) -> AppResult<crate::ai::ProviderResponse<PaperAnalysisResult>> {
+            self.calls
+                .lock()
+                .unwrap()
+                .push((s.max_analysis_input_characters, s.reasoning_effort.clone()));
+            assert!(i.chars().count() <= s.max_analysis_input_characters);
+            if s.max_analysis_input_characters > 8000 || s.reasoning_effort != "none" {
+                return Err(AppError::new(
+                    ErrorCode::AiTimeout,
+                    "Simulated local capacity limit",
+                ));
+            }
+            crate::ai::mock::MockAIProvider.analyze_paper(i, s, c).await
+        }
+    }
+    #[tokio::test]
+    async fn adaptive_analysis_rebuilds_evidence_saves_profile_and_resets_for_next_paper() {
+        let database = Database::in_memory().unwrap();
+        let root =
+            std::env::temp_dir().join(format!("paper-master-adaptive-{}", uuid::Uuid::new_v4()));
+        let logger = AppLogger::new(&root).unwrap();
+        let settings = AppSettings {
+            reasoning_effort: "high".into(),
+            max_analysis_input_characters: 16000,
+            ..Default::default()
+        };
+        {
+            let c = database.connection().unwrap();
+            SqliteSettingsStorage::new(&c).save(&settings).unwrap();
+            let repo = SqlitePaperRepository::new(&c);
+            for id in ["p", "q"] {
+                repo.create(
+                    &paper(id, &[]),
+                    &"Original wireless scheduling evidence. ".repeat(1000),
+                )
+                .unwrap();
+            }
+        }
+        let fake = std::sync::Arc::new(FailingLocal {
+            calls: std::sync::Mutex::new(vec![]),
+        });
+        let providers = AIProviderRegistry::with_provider(fake.clone());
+        let requests = AIRequestRegistry::new();
+        for id in ["p", "q"] {
+            run_analysis(
+                &database,
+                &logger,
+                &providers,
+                &requests,
+                &AnalysisRequest {
+                    paper_id: id.into(),
+                    request_id: format!("test-{id}"),
+                    ensure_only: false,
+                },
+                false,
+            )
+            .await
+            .unwrap();
+            let c = database.connection().unwrap();
+            let versions = crate::database::analysis_versions::list(&c, id).unwrap();
+            assert_eq!(versions.len(), 1);
+            let profile = versions[0].profile.as_ref().unwrap();
+            assert_eq!(profile.attempts, 6);
+            assert_eq!(profile.input_budget, 7200);
+            assert_eq!(profile.output_tokens, settings.max_output_tokens);
+            assert_eq!(
+                SqliteSettingsStorage::new(&c)
+                    .get()
+                    .unwrap()
+                    .reasoning_effort,
+                "high"
+            );
+        }
+        let calls = fake.calls.lock().unwrap();
+        assert_eq!(calls.len(), 12);
+        assert_eq!(calls[0], (16000, "high".into()));
+        assert_eq!(calls[6], calls[0]);
     }
 
     fn paper(id: &str, tags: &[&str]) -> Paper {

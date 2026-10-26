@@ -29,3 +29,5 @@ handoff/
 **/webvpn.txt
 **/*credentials*.txt
 **/*凭据*.txt
+
+/program file/

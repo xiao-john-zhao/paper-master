@@ -1,4 +1,4 @@
-export type AIProviderId = "lmstudio" | "mock" | "codex";
+export type AIProviderId = "lmstudio" | "mock" | "codex" | "openai";
 
 export interface AppSettings {
   ai_provider: AIProviderId;
@@ -6,6 +6,12 @@ export interface AppSettings {
   reasoning_effort: "none" | "low" | "medium" | "high" | "xhigh";
   model_context_length: number;
   base_url: string;
+  api_base_url: string;
+  api_key: string;
+  api_model: string;
+  api_response_format: "json_schema" | "json_object";
+  api_reasoning_supported: boolean;
+  adaptive_analysis: boolean;
   model: string;
   temperature: number;
   request_timeout_ms: number;

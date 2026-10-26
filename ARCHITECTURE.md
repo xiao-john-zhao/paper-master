@@ -1,3 +1,12 @@
+# v0.4.3 additions
+
+- ai/external.rs is the opt-in OpenAI-compatible port; api_base_url/key/model are independent of loopback LM Studio settings. The shared chat transport handles Bearer headers, custom path prefixes and JSON Object/Schema, rejects redirects and checks networking before each external request. Queue snapshots respect the current saved revocation.
+- ai/adaptive.rs defines per-paper descending profiles without persisting global downgrades. ai/staged.rs adds a compact source-backed baseline, direct candidates, overlapping full-text evidence notes, bounded hierarchical consolidation and independent semantic auditing against original quotations. It covers extracted characters, not scanned content. No heuristic is presented as a calibrated probability or proof of optimality.
+- Evidence quotes must occur in the exact source chunk; consolidation must reuse child quotes and preserve core category coverage. Partial notes never become an analyzed version. Baseline and audit calls have bounded inputs/outputs. All phases share cancellation and the serial inference permit. Parts are in-memory until a final successful version, so an interrupted paper restarts through the durable queue.
+- Successful profile/reading report records use the existing settings table and are committed atomically with analysis_versions/active_analyses. Cache schema 2 retains optional reports and reads schema 1; folder names stay version-neutral. API credentials are excluded. Edited analyses retain their generated baseline and indicate audit staleness.
+- Graph cameras project coordinates around a pointer anchor with inverse SVG transforms. Glyph radii/fonts/hit regions do not scale with camera zoom; full labels expand at detail zoom, with independent controls and a neighborhood filter over the displayed graph.
+- NSIS includes WebView2 offline installation and Chinese UI. scripts/New-ReleasePackage.ps1 builds the binary-only sharing ZIP and checksums; New-TransferPackage.ps1 is still the separate source/handoff workflow.
+
 # v0.4.2 controls and analysis integrity
 
 - AnalysisSource formats provider/model identity and creation/edit timestamps. Unknown legacy models remain unknown; Codex drains stderr, retains only a bounded header for a sanitized model identifier, and discards body/reasoning diagnostics.
