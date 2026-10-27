@@ -1,3 +1,7 @@
+# v0.4.4 当前入口（2026-10-27）
+
+使用 application/paper-master.exe 或 v0.4.4 Release安装包。本次修复页面切换清空输入和取消任务；关闭对比改为收起，侧栏可恢复。未保存草稿只在当前应用会话内保留。下面保留历史部署记录。
+
 # v0.4.3 当前安装与构建入口（2026-10-27）
 
 普通用户安装和配置请以 [中文使用指南](docs/下载安装使用指南.md) 为准。本机启动 application/paper-master.exe；开发发布运行 scripts/Build-Local.ps1，再运行 scripts/New-ReleasePackage.ps1 生成只含安装器、文档、可选 LM Studio 安装入口和校验文件的 Windows 分享 ZIP。

@@ -1,3 +1,22 @@
+# v0.4.4 页面切换与任务状态修复验证（2026-10-27）
+
+最终命令 `pwsh -File scripts/Build-Local.ps1` 退出码0：前端35项通过（9文件），后端93项通过、7项实时外部测试ignored，TypeScript/Vite生产构建、Rust release及中文NSIS打包通过，153个前端模块。`scripts/Check-Version.ps1`确认版本源/锁记录一致0.4.4。
+
+新增6项StrictMode实际App树回归，使用隔离内存库与可控制的异步服务：
+
+- 侧栏往返保留联网检索输入、篇数、参考论文、未保存API密钥、元数据/AI草稿及图谱缩放；未访问页面仍延迟挂载，返回不重复构建。
+- 模拟联网检索在隐藏页面及blur/focus/visibilitychange后继续，同一requestId只调用一次；隐藏期间完成的结果返回可见，不触发cancel。
+- 返回页面后明确取消检索仍生效，且不重复取消。
+- 设置后台连接检查完成后保留结果，初次读取和执行中表单禁用，避免覆盖草稿；未点击保存不写入设置。
+- 进行中对比收起/返回不取消、不重发；隐藏时完成结果仍可查看，对比编辑草稿保留。
+- 对比只有明确点击取消才停止，返回保留可读的已取消状态，并阻止旧请求覆盖新结果。
+
+故障复现：临时将KeepAliveView恢复为inactive即卸载的旧生命周期，`node node_modules/vitest/vitest.mjs run tests/navigationState.test.tsx`退出码1，原5项检查全部失败（输入DOM重建、检索被cancel、连接结果和对比视图丢失）。通过finally恢复修复文件后，同命令5项全部通过；补充第6项取消回归后完整35项通过。故障注入日志保留在忽略目录handoff/validation/。首次打印注入摘要时Python默认GBK不能输出Vitest符号，打印脚本发生UnicodeEncodeError；完整测试日志已先写入，源码已由finally恢复，后续测试通过。早期`git diff --check`发现App.tsx行尾空格，清理后退出码0。
+
+`New-ReleasePackage.ps1`退出码0；ZIP CRC与内容白名单通过，只有安装器、中文指南、可选LM Studio脚本和校验文件，内外安装器SHA256相同。本机application/paper-master.exe与构建产物摘要一致。安装器字节数222528099，SHA256 `67ccc5a4eff7bdcb835393ccd141a269b4f0d093fb75fedbe86ed92443251e51`。
+
+本次没有改动数据库模式、AI协议、分析参数或持久队列，不需迁移。待提交路径与常见令牌扫描均通过，未包含个人论文、数据库、密钥、安装器或缓存。草稿只驻留App会话内存，退出/崩溃/重载不保证恢复未保存输入；持久分析队列重启恢复保持原行为。没有运行真实外部模型、付费检索或新电脑人工安装测试；DOM生命周期回归不等同于桌面视觉验收。
+
 # v0.4.3 发布验证（2026-10-27）
 
 最终命令：`pwsh -File scripts/Build-Local.ps1`，退出码0。按脚本顺序完成锁文件依赖安装、前端测试、后端测试、TypeScript/Vite生产构建、Rust release编译、NSIS打包和本机应用替换。`scripts/Check-Version.ps1`退出码0，五处版本源/锁记录一致为0.4.3。

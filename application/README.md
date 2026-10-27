@@ -1,6 +1,6 @@
-# paper-master v0.4.3
+# paper-master v0.4.4
 
-本机统一启动入口：`paper-master.exe`。带版本备份：`paper-master-v0.4.3.exe`。
+本机统一启动入口：`paper-master.exe`。带版本备份：`paper-master-v0.4.4.exe`。
 
 普通用户建议使用 [GitHub Release](https://github.com/xiao-john-zhao/paper-master/releases) 的中文 Windows x64 安装器或分享 ZIP：无需开发环境，安装器内含 WebView2 离线运行时。
 

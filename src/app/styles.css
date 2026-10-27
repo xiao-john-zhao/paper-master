@@ -434,3 +434,8 @@ progress:not([value])::-webkit-progress-bar { background: linear-gradient(90deg,
 .analysis-reading-report summary { cursor:pointer; color:#3f6090; font-weight:600; }
 .analysis-reading-report details { margin:10px 0; padding-top:6px; border-top:1px solid #e9edf5; }
 .analysis-reading-report blockquote { margin:8px 0; padding:8px 12px; border-left:3px solid #92abd3; white-space:pre-wrap; overflow-wrap:anywhere; background:#f7f9fd; }
+
+.preserved-view { min-width:0; min-height:0; height:100%; overflow:hidden; }
+.preserved-view[hidden] { display:none; }
+.preserved-view[data-view="comparison"]:not([hidden]) { display:contents; }
+fieldset.form-grid { min-width:0; border:0; margin:0; padding:0; }

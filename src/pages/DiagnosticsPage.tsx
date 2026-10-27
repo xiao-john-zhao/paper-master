@@ -11,7 +11,7 @@ const browserSnapshot: DiagnosticSnapshot = {
   last_ai_request_status: "Mock analysis succeeded", last_import_status: "No import in this session", recent_errors: [], log_file_location: "Available in Tauri development mode",
 };
 
-export function DiagnosticsPage({ onNotify }: { onNotify(tone: "success" | "error" | "info", title: string, message?: string): void }) {
+export function DiagnosticsPage({ onNotify, active = true }: { active?: boolean; onNotify(tone: "success" | "error" | "info", title: string, message?: string): void }) {
   const [snapshot, setSnapshot] = useState<DiagnosticSnapshot>(browserSnapshot);
   const [busy, setBusy] = useState(false);
   async function refresh() {
@@ -20,7 +20,7 @@ export function DiagnosticsPage({ onNotify }: { onNotify(tone: "success" | "erro
     catch (error) { onNotify("error", "Diagnostics unavailable", error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => { if (active) void refresh(); }, [active]);
 
   async function action(command: string, success: string) {
     try { if (isTauriRuntime()) await invokeCommand(command); onNotify("success", success); await refresh(); }

@@ -11,7 +11,7 @@ import { ComparisonDialog } from "../features/comparison/ComparisonDialog";
 import type { PaperComparisonResult } from "../domain/ai/types";
 import { DiagnosticsPage } from "../pages/DiagnosticsPage";
 import { SettingsPage } from "../pages/SettingsPage";
-import { createApplicationServices } from "../services/ApplicationServices";
+import { createApplicationServices, type ApplicationServices } from "../services/ApplicationServices";
 import { createOperationId } from "../services/PaperService";
 import type { AppSettings } from "../settings/types";
 import { normalizeAppError } from "../types/errors";
@@ -22,11 +22,12 @@ import { TaskCenter,InlineTaskProgress } from "../components/TaskProgress";
 import { progressService,type TaskUpdate } from "../services/ProgressService";
 import { RelationshipGraphPage } from "../pages/RelationshipGraphPage";
 import { LibraryCacheService } from "../services/LibraryCacheService";
+import { KeepAliveView } from "../components/KeepAliveView";
 
-const services = createApplicationServices();
+const defaultServices = createApplicationServices();
 const libraryCache = new LibraryCacheService();
 
-export function App() {
+export function App({ services = defaultServices }: { services?: ApplicationServices } = {}) {
   const [view, setView] = useState<AppView>("library");
   const [filter, setFilter] = useState<LibraryFilter>("all");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -176,7 +177,7 @@ export function App() {
 
   async function compareSelected() {
     if (compareIds.size < 2 || compareIds.size > 8) return;
-    if (comparing) return;
+    if (comparing) { setComparisonOpen(true); return; }
     setComparing(true);
     const requestId = createOperationId("compare");
     currentComparison.current = requestId;
@@ -185,6 +186,7 @@ export function App() {
     try {
       // A search/filter can hide selected papers; resolve every selected ID from the repository.
       const resolved = await Promise.all([...compareIds].map((id) => services.paperService.get(id)));
+      if (currentComparison.current !== requestId) return;
       if (resolved.some((paper) => !paper)) throw new Error("部分已选论文已被移除，请重新选择。");
       const selectedPapers = resolved as Paper[];
       setComparisonPapers(selectedPapers); setComparisonOpen(true);
@@ -202,6 +204,7 @@ export function App() {
   async function cancelComparison() {
     currentComparison.current = undefined;
     if (comparisonRequestId && comparing) await services.comparisonService.cancel(comparisonRequestId).catch(() => undefined);
+    setComparisonError("论文对比已取消，可点击重试重新开始。");
     setComparing(false); setComparisonOpen(false);
   }
 
@@ -236,8 +239,8 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar view={view} filter={filter} tags={tags} activeTags={selectedTags} onlineMode={onlineMode} onView={setView} onFilter={setFilter} onTag={tag => setSelectedTags(current => current.includes(tag) ? current.filter(value => value !== tag) : [...current, tag])} onClearTags={() => setSelectedTags([])}/>
-      {view === "library" && <div className="library-layout">
+      <Sidebar onResumeComparison={comparisonRequestId && comparisonPapers.length >= 2 ? () => setComparisonOpen(true) : undefined} comparing={comparing} view={view} filter={filter} tags={tags} activeTags={selectedTags} onlineMode={onlineMode} onView={setView} onFilter={setFilter} onTag={tag => setSelectedTags(current => current.includes(tag) ? current.filter(value => value !== tag) : [...current, tag])} onClearTags={() => setSelectedTags([])}/>
+      <KeepAliveView active={view === "library"} name="library"><div className="library-layout">
         <section className="library-column">
           <LibraryToolbar onFillMissing={services.tauri ? async () => { try { const result = await services.paperService.queueMissing(papers.map(paper => paper.id)); await loadPapers(true); notify("success", `已加入分析队列 ${result.queued} 篇`, `已有结果/任务跳过 ${result.skipped} 篇，无可读文字 ${result.no_text} 篇。使用 Settings 中保存的服务，可关闭后续跑。`); } catch (error) { notify("error", "补齐未开始", normalizeAppError(error).message); } } : undefined} search={search} compareCount={compareIds.size} loading={loading} onSearch={setSearch} onImportPdf={() => void importPapers(false)} onImportFolder={() => void importPapers(true)} onCompare={() => void compareSelected()}/>
           {cacheWarning && <div className="library-import-progress" role="alert"><p>{cacheWarning}</p><button className="button secondary" onClick={() => setView("diagnostics")}>查看论文缓存</button></div>}
@@ -247,12 +250,12 @@ export function App() {
           <footer className="library-count">{papers.length} paper{papers.length === 1 ? "" : "s"}</footer>
         </section>
         <PaperDetail onSaveMetadata={async metadata=>{if(selected){await services.paperService.editMetadata(selected.id,metadata);await loadPapers(true);}}} versionsService={services.analysisVersionsService} onChanged={() => void loadPapers(true)} requestId={analyzingId === selected?.id ? activeRequestId : undefined} paper={selected} authorContext={authorContext} authorError={authorError} onSelectRelated={(id) => { setSearch(""); setSelectedTags([]); setFilter("all"); setSelectedId(id); }} onRelink={() => void relinkSelected()} analyzing={!!selected && (analyzingId === selected.id || ["queued", "analyzing"].includes(selected.analysis_status))} onAnalyze={() => void analyzeSelected()} onCancel={() => void cancelAnalysis()} onOpen={() => void openSelected()} onDelete={() => void deleteSelected()}/>
-      </div>}
-      {view === "settings" && <SettingsPage storage={services.settingsStorage} providers={services.providers} onSaved={settingsSaved} onNotify={notify}/>} 
-      {view === "diagnostics" && <DiagnosticsPage onNotify={notify}/>} 
-      {view === "research" && <ResearchPage service={services.researchService} paperService={services.paperService} initialReferenceId={selectedId} desktop={services.tauri} onImported={() => void loadPapers(true)} onSettings={() => setView("settings")}/>}
-      {view === "graph" && <RelationshipGraphPage service={services.graphService} onPaper={(id)=>{setSearch("");setSelectedTags([]);setFilter("all");setSelectedId(id);setView("library");}}/>}
-      {comparisonOpen && comparisonPapers.length >= 2 && <ComparisonDialog onSave={async result=>{if(comparisonRequestId)setComparisonResult(await services.comparisonService.saveEdited(comparisonRequestId,result));}} papers={comparisonPapers} result={comparisonResult} loading={comparing} error={comparisonError} requestId={comparisonRequestId} onClose={() => setComparisonOpen(false)} onCancel={() => void cancelComparison()} onRetry={() => void compareSelected()}/>}
+      </div></KeepAliveView>
+      <KeepAliveView active={view === "settings"} name="settings"><SettingsPage storage={services.settingsStorage} providers={services.providers} onSaved={settingsSaved} onNotify={notify}/></KeepAliveView>
+      <KeepAliveView active={view === "diagnostics"} name="diagnostics"><DiagnosticsPage active={view === "diagnostics"} onNotify={notify}/></KeepAliveView>
+      <KeepAliveView active={view === "research"} name="research"><ResearchPage active={view === "research"} service={services.researchService} paperService={services.paperService} initialReferenceId={selectedId} desktop={services.tauri} onImported={() => void loadPapers(true)} onSettings={() => setView("settings")}/></KeepAliveView>
+      <KeepAliveView active={view === "graph"} name="graph"><RelationshipGraphPage service={services.graphService} onPaper={(id)=>{setSearch("");setSelectedTags([]);setFilter("all");setSelectedId(id);setView("library");}}/></KeepAliveView>
+      <KeepAliveView active={comparisonOpen && comparisonPapers.length >= 2} name="comparison"><ComparisonDialog onSave={async result=>{if(comparisonRequestId){const id=comparisonRequestId;const saved=await services.comparisonService.saveEdited(id,result);if(currentComparison.current===id)setComparisonResult(saved);}}} papers={comparisonPapers} result={comparisonResult} loading={comparing} error={comparisonError} requestId={comparisonRequestId} onClose={() => setComparisonOpen(false)} onCancel={() => void cancelComparison()} onRetry={() => void compareSelected()}/></KeepAliveView>
       <TaskCenter/>
       <Toast toast={toast} onClose={() => setToast(undefined)}/>
     </div>

@@ -7,9 +7,9 @@ import type { PaperService } from "../services/PaperService";
 import { InlineTaskProgress } from "../components/TaskProgress";
 import { taskId } from "../services/ProgressService";
 
-interface Props { service: ResearchService; paperService: PaperService; initialReferenceId?: string; desktop: boolean; onImported(): void; onSettings(): void }
+interface Props { service: ResearchService; paperService: PaperService; initialReferenceId?: string; desktop: boolean; active?: boolean; onImported(): void; onSettings(): void }
 
-export function ResearchPage({ service, paperService, initialReferenceId, desktop, onImported, onSettings }: Props) {
+export function ResearchPage({ service, paperService, initialReferenceId, desktop, active = true, onImported, onSettings }: Props) {
   const [request, setRequest] = useState("");
   const [references, setReferences] = useState<Paper[]>([]);
   const [referenceId, setReferenceId] = useState(initialReferenceId ?? "");
@@ -23,7 +23,7 @@ export function ResearchPage({ service, paperService, initialReferenceId, deskto
   const [notice, setNotice] = useState<string>();
   const [downloading, setDownloading] = useState<string>();
   useEffect(() => () => { if (currentRequest.current) void service.cancel(currentRequest.current).catch(() => undefined); currentRequest.current = undefined; }, [service]);
-  useEffect(() => { let active = true; void paperService.list().then((papers) => { if (active) setReferences(papers); }).catch((error) => { if (active) setError(normalizeAppError(error).message); }); return () => { active = false; }; }, [paperService]);
+  useEffect(() => { if (!active) return; let current = true; void paperService.list().then((papers) => { if (current) setReferences(papers); }).catch((error) => { if (current) setError(normalizeAppError(error).message); }); return () => { current = false; }; }, [paperService, active]);
 
   async function search() {
     const id = `research-${crypto.randomUUID()}`;

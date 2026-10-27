@@ -1,3 +1,7 @@
+# Current release: v0.4.4 (2026-10-27)
+
+Next maintenance target: v0.4.5. Session page preservation fixes navigation-related loss of drafts, results and pending operations. Comparison can be hidden and resumed separately from cancellation. Lifecycle regression coverage uses the actual App tree in StrictMode. Runtime-only drafts are not crash/restart persistence. Historical plans follow.
+
 # Current release: v0.4.3 (2026-10-27)
 
 Next maintenance target: v0.4.4. Accepted scope completed in source: AI result editing, detailed graph navigation, external API port, baseline/direct/degraded/segmented analysis and evidence review, private GitHub distribution with Chinese user documentation and easy Windows installation. Real-model performance and fresh-PC installation remain environment-dependent validation work; do not conflate isolated failure-injection tests with live inference. Historical plans follow.

@@ -19,9 +19,14 @@ export function SettingsPage({ storage, providers, onSaved, onNotify }: Props) {
   const [models, setModels] = useState<string[]>([]);
   const [connection, setConnection] = useState<ConnectionResult>();
   const [busy, setBusy] = useState(false);
+  const [initializing,setInitializing] = useState(true);
   const [progressId,setProgressId] = useState<string>();
 
-  useEffect(() => { storage.get().then(setSettings).catch(() => setSettings(DEFAULT_SETTINGS)); }, [storage]);
+  useEffect(() => {
+    let current=true;setInitializing(true);
+    void storage.get().then(value=>{if(current)setSettings(value);}).catch(()=>{if(current)setSettings(DEFAULT_SETTINGS);}).finally(()=>{if(current)setInitializing(false);});
+    return()=>{current=false;};
+  },[storage]);
 
   const provider = providers[settings.ai_provider];
   async function testConnection() {
@@ -58,12 +63,12 @@ export function SettingsPage({ storage, providers, onSaved, onNotify }: Props) {
 
   return (
     <main className="page-shell settings-page">
-      <header className="page-header"><div><h1>Settings</h1><p>选择本地模型或 Codex 阅读总结，并配置联网检索。</p></div><button className="button primary" disabled={busy} onClick={save}>Save changes</button></header>
+      <header className="page-header"><div><h1>Settings</h1><p>选择本地模型或 Codex 阅读总结，并配置联网检索。</p></div><button className="button primary" disabled={busy||initializing} onClick={save}>Save changes</button></header>
       <div className="settings-grid">
         {progressId&&<div className="settings-operation-progress"><InlineTaskProgress id={progressId}/></div>}
         <section className="settings-panel">
           <div className="panel-heading"><div><h2>AI Provider</h2><p>LM Studio 在本机运行；其他 API 可接入 OpenAI 兼容服务，Codex 使用已登录的 CLI。</p></div></div>
-          <div className="form-grid">
+          <fieldset className="form-grid" disabled={busy||initializing}>
             <label className="full auto-analysis-toggle"><span><input type="checkbox" checked={settings.auto_analyze_on_import} onChange={(event) => setSettings({ ...settings, auto_analyze_on_import: event.target.checked })}/>首次导入后自动分析</span><small>导入成功后进入本地分析队列，依次生成问题、场景、方法、创新、贡献和概括。关闭应用后会在下次启动时继续。</small></label>
             <label><span>Provider</span><select value={settings.ai_provider} onChange={(event) => { setConnection(undefined); setModels([]); setSettings({ ...settings, ai_provider: event.target.value as AppSettings["ai_provider"] }); }}><option value="lmstudio">LM Studio</option><option value="openai">其他 API（OpenAI 兼容）</option><option value="codex">Codex CLI（在线阅读与总结）</option><option value="mock">Mock (development)</option></select></label>
             {settings.ai_provider === "openai" && <>
@@ -86,7 +91,7 @@ export function SettingsPage({ storage, providers, onSaved, onNotify }: Props) {
             <label><span>模型加载上下文</span><div className="unit-input"><input type="number" min="4096" max="131072" step="1024" value={settings.model_context_length} onChange={(event) => setSettings({ ...settings, model_context_length: Number(event.target.value) })}/><span>tokens</span></div><small>用于下次模型加载；已加载模型需在 LM Studio 卸载后重新加载。多篇对比共用最大分析输入预算。</small></label>
             <label><span>Maximum AI output</span><div className="unit-input"><input type="number" min="512" max="32768" step="256" value={settings.max_output_tokens} onChange={(event) => setSettings({ ...settings, max_output_tokens: Number(event.target.value) })}/><span>tokens</span></div></label>
             <label><span>Log level</span><select value={settings.log_level} onChange={(event) => setSettings({ ...settings, log_level: event.target.value as AppSettings["log_level"] })}>{["TRACE", "DEBUG", "INFO", "WARN", "ERROR"].map((level) => <option key={level}>{level}</option>)}</select></label>
-          </div>
+          </fieldset>
         </section>
         <aside className="privacy-panel"><div className="privacy-icon"><ShieldIcon/></div><div><span className="eyebrow">Privacy mode</span><h2>{settings.privacy_mode === "codex_online" ? "联网服务已授权" : "本地分析"}</h2><p>{settings.privacy_mode === "codex_online" ? "联网检索、Codex 与外部 API 分析使用在线服务；关闭开关并保存后，取消正在执行的任务并关闭学校浏览器窗口。" : "联网功能已关闭。Codex 选择会保留并回退本机 LM Studio；外部 API 请求将被阻止；已保存的所有模型结果仍可查看和编辑。"}</p></div><ul><li><CheckIcon/>导入的原 PDF 保留原位置</li><li><CheckIcon/>学校凭据仅保存在独立私有 TXT</li><li><CheckIcon/>无应用遥测或分析跟踪</li><li><CheckIcon/>诊断日志不记录论文、提示词和密码</li></ul></aside>
       </div>

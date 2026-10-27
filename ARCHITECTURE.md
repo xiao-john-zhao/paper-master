@@ -1,3 +1,9 @@
+# v0.4.4 page lifetime
+
+KeepAliveView lazily mounts visited pages and hides inactive ones, keeping drafts, request identities and asynchronous completion callbacks alive across navigation. Its lifetime is the App session, not disk persistence. The library/editor subtrees and graph camera share this boundary. Hidden comparison content is excluded from normal grid flow and accessible focus order.
+
+ResearchPage refreshes reference choices on activation but cancels only on actual unmount or explicit cancellation. Settings blocks input while initialization/operations could overwrite it. Comparison presentation closure is independent of cancellation, with a sidebar resume entry; request guards reject late results and reset drafts only for a genuinely new comparison. App supports isolated service injection for StrictMode navigation tests. No database schema, backend transport or privacy changes.
+
 # v0.4.3 additions
 
 - ai/external.rs is the opt-in OpenAI-compatible port; api_base_url/key/model are independent of loopback LM Studio settings. The shared chat transport handles Bearer headers, custom path prefixes and JSON Object/Schema, rejects redirects and checks networking before each external request. Queue snapshots respect the current saved revocation.

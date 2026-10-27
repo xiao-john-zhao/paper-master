@@ -1,5 +1,5 @@
 import type { LibraryFilter } from "../domain/paper/Paper";
-import { ClockIcon, DiagnosticsIcon, LibraryIcon, SettingsIcon, SparkIcon,GraphIcon } from "./Icons";
+import { ClockIcon, DiagnosticsIcon, LibraryIcon, SettingsIcon, SparkIcon,GraphIcon,CompareIcon } from "./Icons";
 
 export type AppView = "library" | "settings" | "diagnostics" | "research" | "graph";
 
@@ -9,13 +9,15 @@ interface Props {
   tags: Array<{ name: string; count: number }>;
   activeTags: string[];
   onlineMode?: boolean;
+  onResumeComparison?(): void;
+  comparing?: boolean;
   onView(view: AppView): void;
   onFilter(filter: LibraryFilter): void;
   onTag(tag: string): void;
   onClearTags(): void;
 }
 
-export function Sidebar({ view, filter, tags, activeTags, onlineMode, onView, onFilter, onTag, onClearTags }: Props) {
+export function Sidebar({ view, filter, tags, activeTags, onlineMode, onView, onFilter, onTag, onClearTags, onResumeComparison, comparing }: Props) {
   const nav = (value: LibraryFilter, icon: React.ReactNode, label: string) => (
     <button className={`side-item ${view === "library" && filter === value ? "active" : ""}`} onClick={() => { onView("library"); onFilter(value); }}>
       {icon}<span>{label}</span>
@@ -46,6 +48,7 @@ export function Sidebar({ view, filter, tags, activeTags, onlineMode, onView, on
         </div>
       </div>
       <div className="sidebar-footer">
+        {onResumeComparison && <button className="side-item" onClick={onResumeComparison}><CompareIcon/><span>{comparing ? "查看进行中的对比" : "查看上次对比"}</span></button>}
         <button className={`side-item ${view === "settings" ? "active" : ""}`} onClick={() => onView("settings")}><SettingsIcon/><span>Settings</span></button>
         <button className={`side-item ${view === "diagnostics" ? "active" : ""}`} onClick={() => onView("diagnostics")}><DiagnosticsIcon/><span>Diagnostics</span></button>
         <div className="local-badge"><span className="status-dot online"/>{onlineMode ? "Codex 联网已授权" : "本地分析"}</div>

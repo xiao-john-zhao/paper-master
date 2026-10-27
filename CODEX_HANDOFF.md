@@ -1,3 +1,13 @@
+# v0.4.4 接管要点（2026-10-27）
+
+修复导航即卸载造成输入丢失及ResearchPage cleanup取消检索。KeepAliveView首次访问挂载，以hidden切换页面，之后直到App退出才销毁；覆盖library/settings/diagnostics/research/graph和comparison。CSS确保hidden不占网格，对比可见wrapper使用display:contents，避免固定modal新增网格行。不要恢复为view条件渲染页面，也不要将隐藏等同取消任务。
+
+ResearchPage active仅控制参考论文刷新；任务清理仍在真正卸载时执行。Settings初次读取和busy时禁用fieldset防止迟到响应覆盖新输入。Diagnostics返回时刷新快照。ComparisonDialog“×”/遮罩只收起，明确取消按钮仍停止任务；Sidebar提供返回入口。新requestId重置旧编辑草稿，保存结果按requestId校验，不允许旧请求覆盖新结果；取消后须保留可读状态。
+
+草稿是本次运行内存状态，不写浏览器存储、数据库、缓存或日志；不宣称退出后自动恢复未保存输入。现有SQLite队列重启恢复未改变。App允许注入ApplicationServices以执行真实导航树回归；默认仍使用单一应用服务实例。
+
+版本0.4.4，下一维护目标0.4.5。新回归测试navigationState.test.tsx在StrictMode下操作实际App；将KeepAliveView改回inactive卸载时，原5项检查全部失败，恢复修复后通过。最终验证及发布状态见VALIDATION.md。
+
 # v0.4.3 接管要点（2026-10-27）
 
 发布范围：明确 AI 全字段编辑入口、锚定矢量缩放及局部图谱、独立 OpenAI 兼容 API、带语义基准和全文分段回退的本地分析、中文安装包及私有 GitHub 分发。
