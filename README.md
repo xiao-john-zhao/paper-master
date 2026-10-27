@@ -1,12 +1,23 @@
 # paper-master
 
-Windows 本地优先论文管理器，当前版本 **v0.4.4**（2026-10-27）。使用 Tauri 2、React、TypeScript、Rust 和 SQLite。
+Windows 本地优先论文管理器，当前版本 **v0.4.5**（2026-10-27）。使用 Tauri 2、React、TypeScript、Rust 和 SQLite。
 
-## 下载与安装
+## 下载后怎么打开
 
-普通用户下载 [GitHub Release](https://github.com/xiao-john-zhao/paper-master/releases) 中的 Windows x64 安装程序，双击即可安装，无需 Node.js、Rust 或 Python。安装器提供简体中文并包含 WebView2 离线运行时。仓库为私有，下载需要受邀账号。
+**Windows 10/11 x64：完整解压后，双击根目录的 `启动paper-master.cmd`。** 也可以进入 `application` 文件夹，直接双击 `paper-master.exe`。不需要安装 Node.js、Rust、Python 或开发工具。
 
-完整说明：[中文下载安装使用指南](docs/下载安装使用指南.md)。分享 ZIP 包含安装器、使用指南、校验文件和可选的 LM Studio 联网安装脚本。
+| 你下载的内容 | 打开方式 |
+| --- | --- |
+| [免安装启动包（较小）](https://github.com/xiao-john-zhao/paper-master/releases/download/v0.4.5/paper-master-v0.4.5-portable-windows-x64.zip) | 解压，双击 `启动paper-master.cmd`；系统需已有 WebView2 |
+| [Windows 安装程序（含离线运行时）](https://github.com/xiao-john-zhao/paper-master/releases/download/v0.4.5/paper-master_0.4.5_x64-setup.exe) | 双击安装，然后从开始菜单打开 paper-master |
+| [安装器分享包](https://github.com/xiao-john-zhao/paper-master/releases/download/v0.4.5/paper-master-v0.4.5-windows-x64.zip) | 解压，先双击里面的 `_x64-setup.exe` |
+| 仓库右上方 **Code → Download ZIP** 或 `git clone` | 从 v0.4.5 起自带完整正式版 EXE，解压后同样双击根目录启动脚本 |
+
+**缺少 WebView2 时优先选择安装程序**，它包含离线安装组件。不要在压缩包内部直接运行。更早版本的 Source code ZIP 可能只有源码；请下载当前版本。仓库仍为私有，下载需登录受邀 GitHub 账号。
+
+[快速开始](快速开始.txt) · [完整中文使用指南](docs/下载安装使用指南.md) · [查看全部发布附件](https://github.com/xiao-john-zhao/paper-master/releases/latest)
+
+仓库 `application/` 保留当前正式版 `paper-master.exe`、版本清单与校验值。Release 同时保留安装器、免安装启动包和完整安装器分享包。个人论文、数据库、密钥、缓存、临时文件、模型、构建目录和旧版 EXE 备份均不随应用上传。
 
 ## 本版功能
 
@@ -63,4 +74,4 @@ pnpm tauri build --ci -- --locked
 - [排错](DEBUGGING.md)
 - [更新日志](CHANGELOG.md)
 
-旧版本实施记录保留在 `docs/` 和 Git 历史中。下一维护目标为 v0.4.5。
+旧版本实施记录保留在 `docs/` 和 Git 历史中。下一维护目标为 v0.4.6。

@@ -20,8 +20,16 @@ Thumbs.db
 .vscode/
 src-tauri/gen/
 .cargo-home/
-application/*.exe
-application/*.lnk
+*.exe
+*.msi
+*.msix
+*.zip
+*.7z
+/application/*
+!/application/README.md
+!/application/paper-master.exe
+!/application/release.json
+!/application/SHA256SUMS.txt
 handoff/
 .handoff-verify/
 /_TRANSFER_MANIFEST.txt
@@ -31,3 +39,25 @@ handoff/
 **/*凭据*.txt
 
 /program file/
+/.cache/
+/tmp/
+/temp/
+*.tmp
+*.temp
+*.bak
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+*.pdb
+*.ilk
+*.dmp
+*.tsbuildinfo
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.vite/
+*.pyc

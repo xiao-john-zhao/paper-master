@@ -1,3 +1,11 @@
+# v0.4.5 下载后如何打开
+
+- Code ZIP/免安装ZIP：完整解压后双击根目录启动paper-master.cmd，或application/paper-master.exe；从v0.4.5起自带程序，无需编译。
+- 安装器ZIP：先解压并运行_x64-setup.exe，然后从开始菜单打开。
+- 缺WebView2：优先使用含离线组件的setup.exe；免安装包不会重复捆绑这个系统运行时。
+- 找不到EXE：确认下载当前版本且完整解压，更早版本Source code ZIP可能只有源码。
+- 校验位置：application/release.json / application/SHA256SUMS.txt；这些清单不包含个人设置。勿把个人缓存复制进应用目录或分享包。
+
 # v0.4.4 页面切换与任务
 
 - 运行期间侧栏切换会保留页面输入、进度、检索结果和图谱视野；返回设置不会重新读取并覆盖尚未保存的草稿。初次加载、连接检查或保存期间表单暂时不可编辑。

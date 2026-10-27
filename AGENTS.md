@@ -44,6 +44,8 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 ## 文档和发布
 
+- 2026-10-27用户明确要求仓库包含完整可运行应用：允许且必须跟踪 `application/paper-master.exe` 这一份正式版EXE及其 `release.json`、`SHA256SUMS.txt`。根目录保留启动脚本与快速说明；其他二进制备份、安装器和分享ZIP仍放在忽略目录/Release，不可解除缓存与个人数据排除。
+
 - 行为、版本、测试基线或运行方式变化时，同步更新 `README.md`、`CHANGELOG.md`、`VALIDATION.md` 或 `CODEX_HANDOFF.md` 中相关部分。
-- 当前版本为 `v0.4.4`，下一维护目标版本为 `v0.4.5`。不要在没有版本决策的情况下修改三个版本源：`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`。
+- 当前版本为 `v0.4.5`，下一维护目标版本为 `v0.4.6`。不要在没有版本决策的情况下修改三个版本源：`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`。
 - 使用 `scripts/New-TransferPackage.ps1` 生成迁移包。生成的 `handoff/` 目录不进入 Git。

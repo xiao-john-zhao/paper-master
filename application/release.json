@@ -1,0 +1,10 @@
+{
+  "version": "0.4.5",
+  "platform": "windows-x64",
+  "entrypoint": "application/paper-master.exe",
+  "launcher": "启动paper-master.cmd",
+  "bytes": 19542528,
+  "sha256": "f08371db67b232199494edd4733e1f2cfd36c5e1f8e3180739ca070bcbdccbab",
+  "runtime": "Microsoft Edge WebView2 (installed separately or by the setup installer)",
+  "personal_data_included": false
+}

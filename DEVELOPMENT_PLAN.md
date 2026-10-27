@@ -1,3 +1,7 @@
+# Current release: v0.4.5 (2026-10-27)
+
+Next target: v0.4.6. Distribution-only maintenance: retain a complete authorized EXE in Git, add a root launcher and clear opening instructions, publish a portable package, and enforce explicit package allowlists. Application behavior stays at the v0.4.4 baseline.
+
 # Current release: v0.4.4 (2026-10-27)
 
 Next maintenance target: v0.4.5. Session page preservation fixes navigation-related loss of drafts, results and pending operations. Comparison can be hidden and resumed separately from cancellation. Lifecycle regression coverage uses the actual App tree in StrictMode. Runtime-only drafts are not crash/restart persistence. Historical plans follow.

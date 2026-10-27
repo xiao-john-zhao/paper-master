@@ -1,3 +1,9 @@
+# v0.4.5 distribution
+
+The repository now tracks exactly one authorized runtime binary at application/paper-master.exe, plus release.json, SHA256SUMS.txt and README. Embedded frontend resources make this the full Windows application; WebView2 remains an external system runtime or is installed by the offline setup. The root CMD launcher resolves its own directory. GitHub Code/Source archives for new tags include the runnable application.
+
+Build-Local updates a version/hash manifest after copying the built EXE. New-ReleasePackage verifies this against the current build, creates fresh isolated staging directories, and assembles installer and portable ZIPs from explicit allowlists. Historical executables, target/dist, caches, credentials and personal data remain excluded. No app logic or schema changes.
+
 # v0.4.4 page lifetime
 
 KeepAliveView lazily mounts visited pages and hides inactive ones, keeping drafts, request identities and asynchronous completion callbacks alive across navigation. Its lifetime is the App session, not disk persistence. The library/editor subtrees and graph camera share this boundary. Hidden comparison content is excluded from normal grid flow and accessible focus order.

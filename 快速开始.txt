@@ -1,0 +1,39 @@
+paper-master：下载后如何打开
+===========================
+
+Windows 10/11 x64 用户：
+
+【已下载仓库 ZIP 或免安装启动包】
+1. 先完整解压，不要在压缩包内部直接运行。
+2. 双击根目录“启动paper-master.cmd”。
+3. 也可以直接双击 application 文件夹中的 paper-master.exe。
+4. 启动脚本使用自身所在目录定位应用，不受当前工作目录影响。
+
+本包包含完整编译后的应用，不需要 Node.js、Rust、Python 或开发工具。
+直接运行需要系统已安装 Microsoft Edge WebView2。
+
+【系统没有 WebView2，或希望安装到开始菜单】
+打开：https://github.com/xiao-john-zhao/paper-master/releases/latest
+下载名称以 _x64-setup.exe 结尾的 Windows 安装器，双击安装。
+安装器内含 WebView2 离线安装组件，完成后从开始菜单打开 paper-master。
+
+【不要下载错】
+- portable-windows-x64.zip：免安装启动包，解压后直接打开。
+- windows-x64.zip：安装器分享包，解压后先运行里面的 setup.exe。
+- GitHub 的 Code → Download ZIP / 当前版本 Source code ZIP：
+  从 v0.4.5 起包含源码、启动脚本和 application/paper-master.exe。
+- 更早版本的源码 ZIP 可能只有源代码，请使用当前版本。
+
+【AI 功能】
+软件本身无需 LM Studio 即可打开资料库。
+本地 AI 请单独安装 LM Studio、下载适合本机的模型并启动本地服务；
+也可在 Settings 配置其他 API 并明确开启联网。
+程序不捆绑作者的模型、API 密钥或登录状态。
+
+【个人数据】
+你的论文、SQLite 数据库、缓存和设置保存在本机用户数据目录，
+不随应用程序分发。具体位置见 Diagnostics。
+同一 Windows 用户升级后继续读取已有资料库，卸载或删除软件文件前请备份个人数据。
+
+完整说明：docs/下载安装使用指南.md 或包内 USER_GUIDE.zh-CN.md。
+版本及程序校验值：application/release.json、application/SHA256SUMS.txt。

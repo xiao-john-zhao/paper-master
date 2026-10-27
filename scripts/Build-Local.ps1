@@ -30,7 +30,25 @@ try {
         Copy-Item -LiteralPath $entryPath -Destination (Join-Path $backupDirectory "paper-master-before-$releaseVersion-$(Get-Date -Format yyyyMMdd-HHmmss).exe")
     }
     Copy-Item -LiteralPath (Join-Path $projectRoot 'src-tauri\target\release\paper-master.exe') -Destination (Join-Path $projectRoot "application\paper-master-v$releaseVersion.exe")
-    Copy-Item -LiteralPath (Join-Path $projectRoot 'src-tauri\target\release\paper-master.exe') -Destination $entryPath
+    try {
+        Copy-Item -LiteralPath (Join-Path $projectRoot 'src-tauri\target\release\paper-master.exe') -Destination $entryPath -ErrorAction Stop
+    }
+    catch {
+        if (-not (Test-Path -LiteralPath $entryPath) -or -not ($_.Exception.GetBaseException() -is [IO.IOException])) { throw }
+        # Windows permits renaming a running image even when replacing its bytes is locked.
+        # Keep that image alive in the ignored backup directory; never terminate the user's work.
+        $backupDirectory = Join-Path $projectRoot 'handoff\release-backups'
+        [IO.Directory]::CreateDirectory($backupDirectory) | Out-Null
+        $retiredPath = Join-Path $backupDirectory "paper-master-running-before-$releaseVersion-$([Guid]::NewGuid().ToString('N')).exe"
+        [IO.File]::Move($entryPath, $retiredPath)
+        try { Copy-Item -LiteralPath (Join-Path $projectRoot 'src-tauri\target\release\paper-master.exe') -Destination $entryPath -ErrorAction Stop }
+        catch {
+            if (-not (Test-Path -LiteralPath $entryPath)) { [IO.File]::Move($retiredPath, $entryPath) }
+            throw
+        }
+        Write-Host '旧应用仍在运行，已保留其进程和文件备份；退出后重新打开即可使用新版。'
+    }
+    & (Join-Path $PSScriptRoot 'Update-ApplicationManifest.ps1')
     Write-Host '本机应用已生成：application\paper-master.exe'
 }
 finally { Pop-Location }

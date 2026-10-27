@@ -1,3 +1,19 @@
+# v0.4.5 完整应用分发验证（2026-10-27）
+
+本版仅整理可运行应用与分发入口，未改变页面、AI或数据库逻辑。`scripts/Build-Local.ps1`先后完成前端35项测试（9文件）、后端93项测试（7项实时外部测试ignored）、TypeScript/Vite生产构建（153模块）、Rust release编译及NSIS安装器；测试和构建阶段均成功。脚本最终退出码1，发生于第33行Copy-Item覆盖本机主入口：旧应用正在运行，EXE被占用，并非产品编译回归。
+
+恢复：将运行中的旧EXE移动到忽略的handoff/release-backups，保留旧进程，复制已构建的新EXE到正式入口；未停止任何用户进程。Update-ApplicationManifest.ps1退出码0并确认版本0.4.5、文件大小19542528、SHA256 `f08371db67b232199494edd4733e1f2cfd36c5e1f8e3180739ca070bcbdccbab`。Build-Local已加入同样的文件锁备份替换处理。脚本经PowerShell语法解析检查。
+
+`New-ReleasePackage.ps1`退出码0，使用全新GUID暂存目录和显式文件列表。安装器分享ZIP仅含5个预期文件；免安装ZIP仅含9个预期文件（当前EXE、启动器、清单/校验及说明）。两种ZIP CRC通过，免安装包程序与正式入口逐字节一致，发布清单版本/大小/摘要一致，根校验文件的每个条目均通过。
+
+负例检查：预先在旧的handoff/release-v0.4.5/windows-x64加入模拟缓存DO_NOT_PUBLISH_TEST_CACHE.db，再执行打包；两个ZIP均不含该文件或其他旧payload内容。没有使用真实个人缓存做试验。免安装ZIP大小7027248字节。
+
+Git允许路径检查通过：application只允许paper-master.exe、release.json、SHA256SUMS.txt及README.md。历史EXE、随意JSON/DB、program file、library-cache、data、node_modules、target、dist、handoff、temp、临时文件、备份、环境文件和Python缓存的模拟路径均被忽略。待提交源文件常见令牌/数据库/缓存JSON结构扫描无命中。当前EXE是显式批准的可运行产物，不是本地缓存，不使用Git LFS占位。
+
+使用git write-tree与git archive生成当前完整源归档，CRC通过；归档包含启动paper-master.cmd、快速开始.txt、版本清单及完整EXE，程序大小/摘要与清单一致，不是LFS指针。源归档仅含这一份EXE，没有缓存、数据库、临时文件或构建目录。v0.4.5标签沿用同一完整树。README、application说明和中文指南均区分免安装、安装器及Code ZIP；直接运行需要系统WebView2，完整安装器含离线组件。源码与发布包不包含个人数据库、API密钥、模型、登录状态或论文。
+
+未在另一台全新Windows电脑重新安装/启动，也未运行真实外部模型。旧进程继续使用其原版本，退出后从新版入口打开才生效；本次没有为了验证启动再开一个真实资料库进程。
+
 # v0.4.4 页面切换与任务状态修复验证（2026-10-27）
 
 最终命令 `pwsh -File scripts/Build-Local.ps1` 退出码0：前端35项通过（9文件），后端93项通过、7项实时外部测试ignored，TypeScript/Vite生产构建、Rust release及中文NSIS打包通过，153个前端模块。`scripts/Check-Version.ps1`确认版本源/锁记录一致0.4.4。

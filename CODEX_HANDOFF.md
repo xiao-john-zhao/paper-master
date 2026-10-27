@@ -1,3 +1,13 @@
+# v0.4.5 分发入口（2026-10-27）
+
+用户明确要求GitHub仓库保留完整应用、提供打开方式且不上传本地缓存。application/paper-master.exe从本版起是经授权的正式版二进制，普通Git跟踪（不是LFS占位）。application其他内容仅允许README.md/release.json/SHA256SUMS.txt；版本备份EXE、安装器、模型、数据库及缓存继续忽略。不要恢复为“一律不提交EXE”导致Code ZIP无法运行，也不要宽泛放开构建目录。
+
+根目录启动paper-master.cmd以自身目录定位application/paper-master.exe；快速开始.txt/README明确安装器、免安装、Code ZIP路线及WebView2依赖。v0.4.5标签必须包含本版EXE与清单，不能只更新main却让新Source code ZIP仍缺程序。
+
+Build-Local成功后调用Update-ApplicationManifest生成文件版本与摘要。New-ReleasePackage使用全新GUID暂存目录和显式文件列表，同时产出安装器分享ZIP及portable ZIP；不递归打包工作树或复用旧payload。发布校验应比对ZIP白名单、程序摘要、GitHub文件blob大小及Release附件摘要。
+
+版本0.4.5，下一目标0.4.6。本版不改变数据库、AI参数及页面状态逻辑，沿用v0.4.4回归。
+
 # v0.4.4 接管要点（2026-10-27）
 
 修复导航即卸载造成输入丢失及ResearchPage cleanup取消检索。KeepAliveView首次访问挂载，以hidden切换页面，之后直到App退出才销毁；覆盖library/settings/diagnostics/research/graph和comparison。CSS确保hidden不占网格，对比可见wrapper使用display:contents，避免固定modal新增网格行。不要恢复为view条件渲染页面，也不要将隐藏等同取消任务。

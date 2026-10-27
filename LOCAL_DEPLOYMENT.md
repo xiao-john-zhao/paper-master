@@ -1,3 +1,9 @@
+# v0.4.5 直接启动（2026-10-27）
+
+根目录双击启动paper-master.cmd，或直接运行application/paper-master.exe。正式版EXE已纳入仓库白名单，Code ZIP解压后同样可用。无WebView2的新电脑使用Release中的离线运行时安装器。
+
+构建：scripts/Build-Local.ps1；分发：scripts/New-ReleasePackage.ps1。输出同时含安装器分享包及免安装启动包，均从新暂存目录按白名单生成，不包含本机缓存或数据。
+
 # v0.4.4 当前入口（2026-10-27）
 
 使用 application/paper-master.exe 或 v0.4.4 Release安装包。本次修复页面切换清空输入和取消任务；关闭对比改为收起，侧栏可恢复。未保存草稿只在当前应用会话内保留。下面保留历史部署记录。
