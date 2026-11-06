@@ -61,3 +61,25 @@ __pycache__/
 .ruff_cache/
 .vite/
 *.pyc
+
+# Private credentials, browser sessions and exported authentication material
+**/.private/
+**/private/
+**/secrets/
+**/.ssh/
+**/.aws/
+**/.codex/
+**/auth.json
+**/credentials.json
+**/credentials.*
+**/*cookies*.txt
+**/*cookies*.json
+**/storageState*.json
+**/id_rsa*
+**/id_ed25519*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore

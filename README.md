@@ -2,6 +2,8 @@
 
 Windows 本地优先论文管理器，当前版本 **v0.4.5**（2026-10-27）。使用 Tauri 2、React、TypeScript、Rust 和 SQLite。
 
+本人自用，出于爱好开发，不保证能解决所有问题。
+
 ## 下载后怎么打开
 
 **Windows 10/11 x64：完整解压后，双击根目录的 `启动paper-master.cmd`。** 也可以进入 `application` 文件夹，直接双击 `paper-master.exe`。不需要安装 Node.js、Rust、Python 或开发工具。
@@ -13,7 +15,7 @@ Windows 本地优先论文管理器，当前版本 **v0.4.5**（2026-10-27）。
 | [安装器分享包](https://github.com/xiao-john-zhao/paper-master/releases/download/v0.4.5/paper-master-v0.4.5-windows-x64.zip) | 解压，先双击里面的 `_x64-setup.exe` |
 | 仓库右上方 **Code → Download ZIP** 或 `git clone` | 从 v0.4.5 起自带完整正式版 EXE，解压后同样双击根目录启动脚本 |
 
-**缺少 WebView2 时优先选择安装程序**，它包含离线安装组件。不要在压缩包内部直接运行。更早版本的 Source code ZIP 可能只有源码；请下载当前版本。仓库仍为私有，下载需登录受邀 GitHub 账号。
+**缺少 WebView2 时优先选择安装程序**，它包含离线安装组件。不要在压缩包内部直接运行。更早版本的 Source code ZIP 可能只有源码；请下载当前版本。公开仓库可直接下载，无需受邀账号。
 
 [快速开始](快速开始.txt) · [完整中文使用指南](docs/下载安装使用指南.md) · [查看全部发布附件](https://github.com/xiao-john-zhao/paper-master/releases/latest)
 
@@ -75,3 +77,5 @@ pnpm tauri build --ci -- --locked
 - [更新日志](CHANGELOG.md)
 
 旧版本实施记录保留在 `docs/` 和 Git 历史中。下一维护目标为 v0.4.6。
+
+<!-- 本人自用，出于爱好开发，有问题联系2024010132@njupt.edu.cn，不一定能解决 -->
